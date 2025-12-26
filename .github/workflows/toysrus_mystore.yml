@@ -46,6 +46,14 @@ jobs:
       - name: Run scraper
         run: node scripts/scrape_toysrus_store.mjs --store-id ${{ matrix.storeId }}
 
+      - name: Upload debug artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: toysrus-debug-${{ matrix.storeId }}
+          path: outputs/debug/**
+          if-no-files-found: warn
+
       - name: Upload store data
         uses: actions/upload-artifact@v4
         with:
