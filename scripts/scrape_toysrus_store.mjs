@@ -128,11 +128,11 @@ const parseArgs = () => {
       : slugIndex >= 0
         ? args[slugIndex + 1]
         : args[0];
-  return { storeId };
+  return { storeId, storeIdProvided: storeIdIndex >= 0 };
 };
 
 const scrapeStore = async () => {
-  const { storeId } = parseArgs();
+  const { storeId, storeIdProvided } = parseArgs();
   const stores = await readStores();
   const store = findStore(stores, storeId);
 
@@ -224,7 +224,7 @@ const scrapeStore = async () => {
 
   await page.goto(seedUrl, { waitUntil: "domcontentloaded" });
   await handleOneTrust(page);
-  await page.waitForLoadState("networkidle");
+  await page.waitForTimeout(1000);
 
   const trigger = page.locator(
     "button:has-text('My Store'), button:has-text('Select Store'), a:has-text('My Store'), a:has-text('Select Store')"
@@ -246,25 +246,74 @@ const scrapeStore = async () => {
 
   const escapeRegExp = (value) =>
     value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const normalizeStoreText = (value) =>
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  const isStrongStoreMatch = (value) => {
+    if (!value) return false;
+    const normalizedValue = normalizeStoreText(value);
+    const normalizedStore = normalizeStoreText(store.storeName);
+    if (!normalizedValue || !normalizedStore) return false;
+    if (normalizedValue === normalizedStore) return true;
+    if (normalizedValue.includes(normalizedStore)) return true;
+    if (
+      normalizedStore.includes(normalizedValue) &&
+      normalizedValue.length >= Math.floor(normalizedStore.length * 0.8)
+    ) {
+      return true;
+    }
+    return false;
+  };
   const storeResults = page.locator(
     "[data-testid*='store' i], [class*='store' i], li"
   );
   await storeResults.first().waitFor({ timeout: 20000 });
 
   const storeNameRegex = new RegExp(escapeRegExp(store.storeName), "i");
+  const rawResultsText = await storeResults.evaluateAll((nodes) =>
+    nodes
+      .map((node) => (node.innerText || node.textContent || "").trim())
+      .filter(Boolean)
+      .map((text) => text.replace(/\s+/g, " ").trim())
+  );
+  console.log(`[toysrus] resultsCount=${rawResultsText.length}`);
+  console.log(
+    `[toysrus] topResults=${JSON.stringify(rawResultsText.slice(0, 5))}`
+  );
   const matchingResults = storeResults.filter({ hasText: storeNameRegex });
   let chosenStore = null;
   const matchCount = await matchingResults.count();
 
   for (let i = 0; i < matchCount; i += 1) {
     const candidate = matchingResults.nth(i);
-    if (await candidate.isVisible().catch(() => false)) {
+    const candidateText = (await candidate.innerText().catch(() => ""))
+      .replace(/\s+/g, " ")
+      .trim();
+    if (
+      isStrongStoreMatch(candidateText) &&
+      (await candidate.isVisible().catch(() => false))
+    ) {
       chosenStore = candidate;
       break;
     }
   }
 
   if (!chosenStore) {
+    if (storeIdProvided) {
+      await page.screenshot({
+        path: path.join(debugDir, `${store.storeId}_no_match.png`),
+        fullPage: true
+      });
+      await fs.writeFile(
+        path.join(debugDir, `${store.storeId}_no_match.html`),
+        await page.content()
+      );
+      throw new Error(`No store match found for ${store.storeName}`);
+    }
+
     const totalCount = await storeResults.count();
     for (let i = 0; i < totalCount; i += 1) {
       const candidate = storeResults.nth(i);
@@ -312,7 +361,9 @@ const scrapeStore = async () => {
 
   await page.goto(seedUrl, { waitUntil: "domcontentloaded" });
   await handleOneTrust(page);
-  await page.waitForLoadState("networkidle");
+  await page.waitForTimeout(1000);
+  const expectedStoreLabel = myStoreLabel.filter({ hasText: storeNameRegex });
+  await expectedStoreLabel.first().waitFor({ timeout: 20000 }).catch(() => {});
 
   const productSelector = "a[href*='/p/'], .product-tile, [data-test*='product']";
   await page.waitForSelector(productSelector, { timeout: 20000 });
