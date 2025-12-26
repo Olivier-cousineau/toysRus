@@ -5,6 +5,9 @@ on:
   schedule:
     - cron: "0 5 * * *"
 
+permissions:
+  contents: write
+
 jobs:
   scrape:
     runs-on: ubuntu-latest
@@ -26,28 +29,14 @@ jobs:
       - name: Run scraper
         run: npm run scrape
 
-      - name: Checkout econoplus
-        uses: actions/checkout@v4
-        with:
-          repository: Olivier-cousineau/econoplus
-          token: ${{ secrets.ECONOPLUS_TOKEN }}
-          path: _econoplus
-
-      - name: Copy data into econoplus
-        run: |
-          mkdir -p _econoplus/public/toysrus
-          cp data/online.json _econoplus/public/toysrus/online.json
-          cp data/toysrus_clearance_full.json _econoplus/public/toysrus/clearance_full.json
-
       - name: Commit and push
         run: |
-          cd _econoplus
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add public/toysrus/online.json public/toysrus/clearance_full.json
+          git add data/online.json data/toysrus_clearance_full.json
           if git diff --cached --quiet; then
             echo "No changes to commit."
             exit 0
           fi
-          git commit -m "ToysRUs: update clearance (online)"
+          git commit -m "ToysRUs: update clearance data"
           git push
