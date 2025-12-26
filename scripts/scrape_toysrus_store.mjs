@@ -397,16 +397,23 @@ const scrapeStore = async () => {
     .first();
   let confirmClicked = false;
   try {
-    await confirmButton.scrollIntoViewIfNeeded();
-    await confirmButton.click({ timeout: 15000, force: true });
-    confirmClicked = true;
+    const confirmVisible = await confirmButton.isVisible().catch(() => false);
+    if (confirmVisible) {
+      await confirmButton.scrollIntoViewIfNeeded();
+      await confirmButton.click({ timeout: 15000, force: true });
+      confirmClicked = true;
+    }
   } catch (error) {
     console.warn("[toysrus] confirm button click failed, falling back", error);
   }
 
   if (!confirmClicked) {
-    await page.evaluate(() =>
-      document.querySelector('button.js-select-store[value="2407"]')?.click()
+    await page.evaluate(
+      (storeId) =>
+        document
+          .querySelector(`button.js-select-store[value="${storeId}"]`)
+          ?.click(),
+      store.storeId
     );
   }
 
