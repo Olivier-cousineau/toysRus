@@ -1,42 +1,187 @@
 [
   {
-    "storeId": "laval",
+    "storeId": "2407",
+    "storeName": "Niagara Pen Centre",
+    "searchText": "Niagara Pen Centre"
+  },
+  {
+    "storeId": "2408",
+    "storeName": "Guelph",
+    "searchText": "Guelph"
+  },
+  {
+    "storeId": "2419",
+    "storeName": "Lawrence & Allen",
+    "searchText": "Lawrence & Allen"
+  },
+  {
+    "storeId": "2435",
+    "storeName": "South Barrie",
+    "searchText": "South Barrie"
+  },
+  {
+    "storeId": "2445",
+    "storeName": "Scarborough",
+    "searchText": "Scarborough"
+  },
+  {
+    "storeId": "3502",
+    "storeName": "Brampton",
+    "searchText": "Brampton"
+  },
+  {
+    "storeId": "3503",
+    "storeName": "Hamilton",
+    "searchText": "Hamilton"
+  },
+  {
+    "storeId": "3506",
+    "storeName": "Sherway",
+    "searchText": "Sherway"
+  },
+  {
+    "storeId": "3507",
+    "storeName": "Kitchener",
+    "searchText": "Kitchener"
+  },
+  {
+    "storeId": "3508",
+    "storeName": "Whitby",
+    "searchText": "Whitby"
+  },
+  {
+    "storeId": "3509",
+    "storeName": "Windsor",
+    "searchText": "Windsor"
+  },
+  {
+    "storeId": "3511",
+    "storeName": "Brossard",
+    "searchText": "Brossard"
+  },
+  {
+    "storeId": "3514",
     "storeName": "Laval",
     "searchText": "Laval"
   },
   {
-    "storeId": "montreal",
-    "storeName": "Montreal",
-    "searchText": "Montreal"
+    "storeId": "3519",
+    "storeName": "Don Mills",
+    "searchText": "Don Mills"
   },
   {
-    "storeId": "toronto",
-    "storeName": "Toronto",
-    "searchText": "Toronto"
+    "storeId": "3520",
+    "storeName": "St. Catharines",
+    "searchText": "St. Catharines"
   },
   {
-    "storeId": "ottawa",
-    "storeName": "Ottawa",
-    "searchText": "Ottawa"
+    "storeId": "3521",
+    "storeName": "South Edmonton",
+    "searchText": "South Edmonton"
   },
   {
-    "storeId": "calgary",
-    "storeName": "Calgary",
-    "searchText": "Calgary"
+    "storeId": "3522",
+    "storeName": "West Edmonton",
+    "searchText": "West Edmonton"
   },
   {
-    "storeId": "edmonton",
-    "storeName": "Edmonton",
-    "searchText": "Edmonton"
+    "storeId": "3524",
+    "storeName": "Macleod Trail",
+    "searchText": "Macleod Trail"
   },
   {
-    "storeId": "vancouver",
-    "storeName": "Vancouver",
-    "searchText": "Vancouver"
+    "storeId": "3525",
+    "storeName": "Polo Park",
+    "searchText": "Polo Park"
   },
   {
-    "storeId": "winnipeg",
-    "storeName": "Winnipeg",
-    "searchText": "Winnipeg"
+    "storeId": "3526",
+    "storeName": "Kildonan",
+    "searchText": "Kildonan"
+  },
+  {
+    "storeId": "3527",
+    "storeName": "Nepean",
+    "searchText": "Nepean"
+  },
+  {
+    "storeId": "3529",
+    "storeName": "Barrie",
+    "searchText": "Barrie"
+  },
+  {
+    "storeId": "3531",
+    "storeName": "St. Laurent",
+    "searchText": "St. Laurent"
+  },
+  {
+    "storeId": "3534",
+    "storeName": "Langley",
+    "searchText": "Langley"
+  },
+  {
+    "storeId": "3535",
+    "storeName": "North Edmonton",
+    "searchText": "North Edmonton"
+  },
+  {
+    "storeId": "3536",
+    "storeName": "Kingston",
+    "searchText": "Kingston"
+  },
+  {
+    "storeId": "3538",
+    "storeName": "Saint-Bruno",
+    "searchText": "Saint-Bruno"
+  },
+  {
+    "storeId": "3540",
+    "storeName": "Newmarket",
+    "searchText": "Newmarket"
+  },
+  {
+    "storeId": "3543",
+    "storeName": "Lethbridge",
+    "searchText": "Lethbridge"
+  },
+  {
+    "storeId": "3544",
+    "storeName": "Saskatoon",
+    "searchText": "Saskatoon"
+  },
+  {
+    "storeId": "3545",
+    "storeName": "Regina",
+    "searchText": "Regina"
+  },
+  {
+    "storeId": "3555",
+    "storeName": "St. John's",
+    "searchText": "St. John's"
+  },
+  {
+    "storeId": "3557",
+    "storeName": "Red Deer",
+    "searchText": "Red Deer"
+  },
+  {
+    "storeId": "3559",
+    "storeName": "Fredericton",
+    "searchText": "Fredericton"
+  },
+  {
+    "storeId": "3560",
+    "storeName": "Dufferin Mall",
+    "searchText": "Dufferin Mall"
+  },
+  {
+    "storeId": "3561",
+    "storeName": "Sarnia",
+    "searchText": "Sarnia"
+  },
+  {
+    "storeId": "3574",
+    "storeName": "Vaughan Mills",
+    "searchText": "Vaughan Mills"
   }
 ]
