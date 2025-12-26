@@ -1,0 +1,90 @@
+name: ToysRUs My Store Clearance
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "30 5 * * *"
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - name: Checkout scraper repo
+        uses: actions/checkout@v4
+
+      - name: Build matrix from stores.json
+        id: set-matrix
+        run: |
+          node -e "const fs=require('fs');const stores=JSON.parse(fs.readFileSync('public/toysrus/stores.json','utf8'));const matrix={include:stores.map(s=>({slug:s.slug,city:s.city}))};console.log('matrix='+JSON.stringify(matrix));" >> $GITHUB_OUTPUT
+
+  scrape:
+    runs-on: ubuntu-latest
+    needs: prepare
+    strategy:
+      max-parallel: 4
+      matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
+    steps:
+      - name: Checkout scraper repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Install Playwright Chromium
+        run: npx playwright install chromium
+
+      - name: Run scraper
+        run: node scripts/scrape_toysrus_store.mjs --slug ${{ matrix.slug }}
+
+      - name: Upload store data
+        uses: actions/upload-artifact@v4
+        with:
+          name: toysrus-${{ matrix.slug }}
+          path: |
+            data/toysrus/${{ matrix.slug }}/data.json
+            outputs/debug/${{ matrix.slug }}_page.png
+            outputs/debug/${{ matrix.slug }}_page.html
+          if-no-files-found: warn
+
+  finalize:
+    runs-on: ubuntu-latest
+    needs: scrape
+    steps:
+      - name: Checkout scraper repo
+        uses: actions/checkout@v4
+
+      - name: Download store artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: toysrus-*
+          path: artifacts
+          merge-multiple: true
+
+      - name: Merge store data
+        run: |
+          mkdir -p data/toysrus
+          if [ -d artifacts/data/toysrus ]; then
+            rsync -a artifacts/data/toysrus/ data/toysrus/
+          fi
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/toysrus
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git commit -m "ToysRUs: update My Store data"
+          git push
