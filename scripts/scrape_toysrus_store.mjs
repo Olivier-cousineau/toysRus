@@ -434,7 +434,47 @@ const scrapeStore = async () => {
   }
   console.log(`[toysrus] My Store confirmed: ${store.storeName}`);
 
-  await page.goto(seedUrl, { waitUntil: "domcontentloaded" });
+  await Promise.race([
+    page
+      .waitForNavigation({ waitUntil: "domcontentloaded", timeout: 30000 })
+      .catch(() => null),
+    page.waitForTimeout(1500)
+  ]);
+  await modal
+    .waitFor({ state: "hidden", timeout: 20000 })
+    .catch(() => null);
+
+  const safeReload = async (retries = 2) => {
+    for (let attempt = 0; attempt <= retries; attempt += 1) {
+      try {
+        await page.reload({ waitUntil: "domcontentloaded" });
+        return;
+      } catch (error) {
+        const errorMessage = String(error);
+        if (errorMessage.includes("ERR_ABORTED") && attempt < retries) {
+          continue;
+        }
+        throw error;
+      }
+    }
+  };
+
+  const clearanceLink = page
+    .locator("a:has-text('CLEARANCE'), a[href*='clearance']")
+    .first();
+  const clearanceVisible = await clearanceLink.isVisible().catch(() => false);
+  if (clearanceVisible) {
+    await clearanceLink.click({ timeout: 15000 });
+    await Promise.race([
+      page
+        .waitForNavigation({ waitUntil: "domcontentloaded", timeout: 30000 })
+        .catch(() => null),
+      page.waitForTimeout(1500)
+    ]);
+  } else {
+    await safeReload();
+  }
+
   await handleOneTrust(page);
   await page.waitForTimeout(1000);
 
