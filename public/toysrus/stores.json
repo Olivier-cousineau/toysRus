@@ -1,0 +1,42 @@
+[
+  {
+    "city": "Laval",
+    "slug": "laval",
+    "search": "Laval"
+  },
+  {
+    "city": "Montreal",
+    "slug": "montreal",
+    "search": "Montreal"
+  },
+  {
+    "city": "Toronto",
+    "slug": "toronto",
+    "search": "Toronto"
+  },
+  {
+    "city": "Ottawa",
+    "slug": "ottawa",
+    "search": "Ottawa"
+  },
+  {
+    "city": "Calgary",
+    "slug": "calgary",
+    "search": "Calgary"
+  },
+  {
+    "city": "Edmonton",
+    "slug": "edmonton",
+    "search": "Edmonton"
+  },
+  {
+    "city": "Vancouver",
+    "slug": "vancouver",
+    "search": "Vancouver"
+  },
+  {
+    "city": "Winnipeg",
+    "slug": "winnipeg",
+    "search": "Winnipeg"
+  }
+]
