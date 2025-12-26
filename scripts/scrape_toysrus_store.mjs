@@ -444,15 +444,17 @@ const scrapeStore = async () => {
   }
   console.log(`[toysrus] My Store confirmed: ${store.storeName}`);
 
+  await modal
+    .waitFor({ state: "hidden", timeout: 20000 })
+    .catch(() => null);
   await Promise.race([
     page
       .waitForNavigation({ waitUntil: "domcontentloaded", timeout: 30000 })
       .catch(() => null),
     page.waitForTimeout(1500)
   ]);
-  await modal
-    .waitFor({ state: "hidden", timeout: 20000 })
-    .catch(() => null);
+  await page.reload({ waitUntil: "domcontentloaded" }).catch(() => null);
+  await handleOneTrust(page);
 
   const safeReload = async (retries = 2) => {
     for (let attempt = 0; attempt <= retries; attempt += 1) {
@@ -488,8 +490,60 @@ const scrapeStore = async () => {
   await handleOneTrust(page);
   await page.waitForTimeout(1000);
 
-  const productSelector = "a[href*='/p/'], .product-tile, [data-test*='product']";
-  await page.waitForSelector(productSelector, { timeout: 20000 });
+  const plpSignal = await Promise.race([
+    page
+      .waitForSelector('button:has-text("Load more")', { timeout: 20000 })
+      .then(() => "load-more")
+      .catch(() => null),
+    page
+      .waitForSelector('button:has-text("LOAD MORE")', { timeout: 20000 })
+      .then(() => "load-more-upper")
+      .catch(() => null),
+    page
+      .waitForSelector("text=/\\b\\d+\\s+products\\b/i", { timeout: 20000 })
+      .then(() => "product-count")
+      .catch(() => null),
+    page
+      .waitForSelector("img[src]", { timeout: 20000 })
+      .then(() => "img")
+      .catch(() => null),
+    page
+      .waitForSelector("main", { timeout: 20000 })
+      .then(() => "main")
+      .catch(() => null),
+    page
+      .waitForSelector('[class*="product"]', { timeout: 20000 })
+      .then(() => "product-class")
+      .catch(() => null),
+    page
+      .waitForSelector("a[href]", { timeout: 20000 })
+      .then(() => "link")
+      .catch(() => null),
+    page.waitForTimeout(20000).then(() => null)
+  ]);
+
+  if (!plpSignal) {
+    await page.screenshot({
+      path: path.join(debugDir, `${store.storeId}_after_confirm.png`),
+      fullPage: true
+    });
+    await fs.writeFile(
+      path.join(debugDir, `${store.storeId}_after_confirm.html`),
+      await page.content()
+    );
+    const pageUrl = page.url();
+    const pageTitle = await page.title().catch(() => "");
+    const bodyPreview = await page
+      .evaluate(() => {
+        const text = document.body?.innerText || "";
+        return text.replace(/\s+/g, " ").trim().slice(0, 300);
+      })
+      .catch(() => "");
+    console.log(
+      `[toysrus] No PLP signal after confirm: url=${pageUrl} title="${pageTitle}" body="${bodyPreview}"`
+    );
+    throw new Error("No PLP content after confirm");
+  }
 
   let loadMoreClicks = 0;
   for (let i = 0; i < maxLoadMoreClicks; i += 1) {
