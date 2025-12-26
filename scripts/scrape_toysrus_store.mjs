@@ -391,11 +391,24 @@ const scrapeStore = async () => {
 
   await chosenStore.click();
 
-  const confirmButton = page.locator(
-    "button:has-text('Confirm as My Store'), button:has-text('Confirmer comme mon magasin'), button:has-text('Confirmer en tant que mon magasin')"
-  );
-  await confirmButton.first().waitFor({ timeout: 20000 });
-  await confirmButton.first().click();
+  const row = chosenStore;
+  const confirmButton = row
+    .locator("button.js-select-store, button:has-text('Confirm as My Store')")
+    .first();
+  let confirmClicked = false;
+  try {
+    await confirmButton.scrollIntoViewIfNeeded();
+    await confirmButton.click({ timeout: 15000, force: true });
+    confirmClicked = true;
+  } catch (error) {
+    console.warn("[toysrus] confirm button click failed, falling back", error);
+  }
+
+  if (!confirmClicked) {
+    await page.evaluate(() =>
+      document.querySelector('button.js-select-store[value="2407"]')?.click()
+    );
+  }
 
   const headerText = (await page
     .locator("header")
@@ -411,6 +424,10 @@ const scrapeStore = async () => {
       path: path.join(debugDir, `${store.storeName}_after_confirm.png`),
       fullPage: true
     });
+    await fs.writeFile(
+      path.join(debugDir, `${store.storeName}_after_confirm.html`),
+      await page.content()
+    );
     throw new Error(
       `My Store mismatch: header="${headerText}" expected store="${store.storeName}"`
     );
