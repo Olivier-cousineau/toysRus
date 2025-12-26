@@ -3,9 +3,12 @@ import path from "path";
 import { chromium } from "playwright";
 
 const seedUrl = "https://www.toysrus.ca/en/toysrus/CLEARANCE";
-const maxLoadMoreClicks = 40;
+const maxLoadMoreClicks = 80;
 
 const randomDelay = (minMs = 700, maxMs = 1200) =>
+  Math.floor(Math.random() * (maxMs - minMs + 1)) + minMs;
+
+const randomShortDelay = (minMs = 250, maxMs = 400) =>
   Math.floor(Math.random() * (maxMs - minMs + 1)) + minMs;
 
 const normalizeUrl = (value) => {
@@ -98,10 +101,8 @@ const closeBlockingModals = async (page) => {
   const findCloseButton = async (scope) => {
     const closeSelectors = [
       "button[aria-label='Close']",
-      "button.close",
-      "button:has-text('Close')",
       "button:has-text('×')",
-      ".modal button:has-text('×')"
+      ".modal button"
     ];
     for (const selector of closeSelectors) {
       const button = scope.locator(selector).first();
@@ -157,7 +158,11 @@ const closeBlockingModals = async (page) => {
   }
 
   await page.evaluate(() => {
-    const selectors = ["[id*='onetrust']", ".onetrust-pc-dark-filter", ".ot-fade-in"];
+    const selectors = [
+      "#onetrust-consent-sdk",
+      ".onetrust-pc-dark-filter",
+      ".ot-fade-in"
+    ];
     selectors.forEach((selector) => {
       document.querySelectorAll(selector).forEach((element) => element.remove());
     });
@@ -187,6 +192,8 @@ const closeBlockingModals = async (page) => {
       }
     });
   });
+
+  await page.waitForTimeout(randomShortDelay());
 };
 
 const isLikelyProductUrl = (value) =>
@@ -539,10 +546,10 @@ const scrapeStore = async () => {
   }
   console.log(`[toysrus] My Store confirmed: ${store.storeName}`);
   await closeBlockingModals(page);
-
   await modal
     .waitFor({ state: "hidden", timeout: 20000 })
     .catch(() => null);
+  await closeBlockingModals(page);
   await Promise.race([
     page
       .waitForNavigation({ waitUntil: "domcontentloaded", timeout: 30000 })
@@ -550,13 +557,18 @@ const scrapeStore = async () => {
     page.waitForTimeout(1500)
   ]);
   await page.reload({ waitUntil: "domcontentloaded" }).catch(() => null);
-  await handleOneTrust(page);
+  await closeBlockingModals(page);
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await handleOneTrust(page);
+    await page.waitForTimeout(400);
+  }
   await closeBlockingModals(page);
 
   const safeReload = async (retries = 2) => {
     for (let attempt = 0; attempt <= retries; attempt += 1) {
       try {
         await page.reload({ waitUntil: "domcontentloaded" });
+        await closeBlockingModals(page);
         return;
       } catch (error) {
         const errorMessage = String(error);
@@ -582,82 +594,85 @@ const scrapeStore = async () => {
     ]);
   } else {
     await safeReload();
-    await closeBlockingModals(page);
   }
 
   await handleOneTrust(page);
   await page.waitForTimeout(1000);
-
-  const plpSignal = await Promise.race([
-    page
-      .waitForSelector('button:has-text("Load more")', { timeout: 20000 })
-      .then(() => "load-more")
-      .catch(() => null),
-    page
-      .waitForSelector('button:has-text("LOAD MORE")', { timeout: 20000 })
-      .then(() => "load-more-upper")
-      .catch(() => null),
-    page
-      .waitForSelector("text=/\\b\\d+\\s+products\\b/i", { timeout: 20000 })
-      .then(() => "product-count")
-      .catch(() => null),
-    page
-      .waitForSelector("img[src]", { timeout: 20000 })
-      .then(() => "img")
-      .catch(() => null),
-    page
-      .waitForSelector("main", { timeout: 20000 })
-      .then(() => "main")
-      .catch(() => null),
-    page
-      .waitForSelector('[class*="product"]', { timeout: 20000 })
-      .then(() => "product-class")
-      .catch(() => null),
-    page
-      .waitForSelector("a[href]", { timeout: 20000 })
-      .then(() => "link")
-      .catch(() => null),
-    page.waitForTimeout(20000).then(() => null)
-  ]);
-
-  if (!plpSignal) {
-    await page.screenshot({
-      path: path.join(debugDir, `${store.storeId}_after_confirm.png`),
-      fullPage: true
-    });
-    await fs.writeFile(
-      path.join(debugDir, `${store.storeId}_after_confirm.html`),
-      await page.content()
-    );
-    const pageUrl = page.url();
-    const pageTitle = await page.title().catch(() => "");
-    const bodyPreview = await page
-      .evaluate(() => {
-        const text = document.body?.innerText || "";
-        return text.replace(/\s+/g, " ").trim().slice(0, 300);
-      })
-      .catch(() => "");
-    console.log(
-      `[toysrus] No PLP signal after confirm: url=${pageUrl} title="${pageTitle}" body="${bodyPreview}"`
-    );
-    throw new Error("No PLP content after confirm");
+  await closeBlockingModals(page);
+  try {
+    await page
+      .locator("text=/Showing\\s+\\d+\\s+of\\s+\\d+\\s+products/i")
+      .first()
+      .waitFor({ timeout: 30000 });
+  } catch {
+    await page.locator("text=/\\bResults\\b/i").first().waitFor({ timeout: 30000 });
   }
 
+  const pageUrl = page.url();
+  const pageTitle = await page.title().catch(() => "");
+  const countShowing = await page
+    .locator("text=/Showing\\s+\\d+\\s+of\\s+\\d+\\s+products/i")
+    .count()
+    .catch(() => 0);
+  const countWasNow = await page.locator("text=/Was:\\s*\\$/i").count().catch(() => 0);
+  const countAddToCart = await page
+    .locator("text=/Add to Cart/i")
+    .count()
+    .catch(() => 0);
+  const countLoadMoreVisible = await page
+    .locator(
+      "button:has-text('Load More'), button:has-text('LOAD MORE'), a:has-text('Load More'), a:has-text('LOAD MORE'), [role='button']:has-text('Load More'), [role='button']:has-text('LOAD MORE')"
+    )
+    .filter({ hasText: /Load More/i })
+    .count()
+    .catch(() => 0);
+  console.log(
+    `[toysrus] post-confirm url=${pageUrl} title="${pageTitle}" showing=${countShowing} wasNow=${countWasNow} addToCart=${countAddToCart} loadMoreVisible=${countLoadMoreVisible}`
+  );
+
   let loadMoreClicks = 0;
+  let noProgress = 0;
+  const loadMoreLocator = page.locator(
+    "button:has-text('Load More'), button:has-text('LOAD MORE'), a:has-text('Load More'), a:has-text('LOAD MORE'), [role='button']:has-text('Load More'), [role='button']:has-text('LOAD MORE')"
+  );
+  const getProgressCounts = async () => {
+    const wasNowCount = await page.locator("text=/Was:\\s*\\$/i").count().catch(() => 0);
+    const addToCartCount = await page
+      .locator("text=/Add to Cart/i")
+      .count()
+      .catch(() => 0);
+    return { wasNowCount, addToCartCount };
+  };
+  let previousCounts = await getProgressCounts();
+
   for (let i = 0; i < maxLoadMoreClicks; i += 1) {
-    const loadMoreButton = page.locator('button:has-text("Load more")');
-    const isVisible = await loadMoreButton.first().isVisible().catch(() => false);
+    await closeBlockingModals(page);
+    const isVisible = await loadMoreLocator.first().isVisible().catch(() => false);
     if (!isVisible) {
       break;
     }
 
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-    await page.waitForTimeout(randomDelay());
+    await page.waitForTimeout(randomDelay(800, 1200));
 
     await handleOneTrust(page);
-    await loadMoreButton.first().click();
+    await loadMoreLocator.first().click({ timeout: 15000 }).catch(() => null);
     loadMoreClicks += 1;
-    await page.waitForTimeout(randomDelay());
+    await page.waitForTimeout(randomDelay(800, 1200));
+
+    const currentCounts = await getProgressCounts();
+    const progressed =
+      currentCounts.wasNowCount > previousCounts.wasNowCount ||
+      currentCounts.addToCartCount > previousCounts.addToCartCount;
+    if (progressed) {
+      noProgress = 0;
+      previousCounts = currentCounts;
+    } else {
+      noProgress += 1;
+      if (noProgress >= 2) {
+        break;
+      }
+    }
   }
 
   await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
@@ -665,8 +680,16 @@ const scrapeStore = async () => {
 
   const scrapedAt = new Date().toISOString();
 
-  const { rawProducts, hrefs } = await page.evaluate(() => {
-    const priceRegex = /\$\s?[\d.,]+/g;
+  await closeBlockingModals(page);
+
+  const { rawProducts } = await page.evaluate(() => {
+    const wasNowRegex = /Was:\s*\$([0-9.,]+)\s*to\s*Now:\s*\$([0-9.,]+)/i;
+    const statusPatterns = [
+      /in stock/i,
+      /out of stock/i,
+      /pickup only/i,
+      /in store only/i
+    ];
 
     const getImageUrl = (card) => {
       const img = card.querySelector("img");
@@ -692,93 +715,81 @@ const scrapeStore = async () => {
       return null;
     };
 
-    const parseNumbers = (values) =>
-      values
-        .map((value) => value.replace(/[^\d.,]/g, "").replace(/,/g, ""))
-        .map((value) => Number.parseFloat(value))
-        .filter((value) => Number.isFinite(value));
+    const normalizeText = (value) =>
+      (value || "").replace(/\s+/g, " ").trim();
+
+    const isStatusLine = (line) =>
+      statusPatterns.some((pattern) => pattern.test(line)) ||
+      /Was:\s*\$/i.test(line) ||
+      /Now:\s*\$/i.test(line) ||
+      /Add to Cart/i.test(line) ||
+      /Customer Rating/i.test(line);
 
     const getProductLink = (card) => {
-      const directAnchor = card.querySelector(
-        "a[href*='/p/'], a[href*='/product/'], a[href*='/toysrus/']"
+      const anchors = Array.from(card.querySelectorAll("a[href]"));
+      const preferred = anchors.find((anchor) =>
+        /\/p\//i.test(anchor.getAttribute("href") || "")
       );
-      if (directAnchor) {
-        return directAnchor.getAttribute("href") || "";
-      }
-
-      const dataEl = card.querySelector("[data-href], [data-url]");
-      if (dataEl) {
-        return (
-          dataEl.getAttribute("data-href") ||
-          dataEl.getAttribute("data-url") ||
-          ""
-        );
-      }
-
-      return "";
+      const candidate = preferred || anchors[0];
+      return candidate ? candidate.getAttribute("href") || "" : "";
     };
 
-    const selectors = [
-      "article",
-      "li",
-      ".product-tile",
-      ".product-card",
-      "[data-testid*='product' i]",
-      "[data-qa*='product' i]"
-    ];
+    const findTitle = (card) => {
+      const text = normalizeText(card.innerText || "");
+      if (!text) return "";
+      const lines = text
+        .split(/\n+/)
+        .map((line) => normalizeText(line))
+        .filter(Boolean);
+      const titleLine = lines.find((line) => !isStatusLine(line));
+      return titleLine || "";
+    };
 
-    const cards = selectors
-      .flatMap((selector) => Array.from(document.querySelectorAll(selector)))
-      .filter((el) => {
-        const href = getProductLink(el);
-        return href && /\/p\//i.test(href);
-      });
+    const findStatus = (cardText) => {
+      if (/out of stock/i.test(cardText)) return "Out of Stock";
+      if (/pickup only/i.test(cardText)) return "Pickup Only";
+      if (/in store only/i.test(cardText)) return "In Store Only";
+      if (/in stock/i.test(cardText)) return "In Stock";
+      return null;
+    };
 
-    const hrefs = cards.map((card) => getProductLink(card)).filter(Boolean);
+    const findRating = (cardText) => {
+      const match = cardText.match(/([0-9.]+)\s+out of 5 Customer Rating/i);
+      return match ? match[1] : null;
+    };
 
-    const rawProducts = cards.map((card) => {
-      const anchor = card.querySelector(
-        "a[href*='/p/'], a[href*='/product/'], a[href*='/toysrus/']"
-      );
-      const titleEl =
-        card.querySelector("[data-testid*='product' i]") ||
-        card.querySelector(".product-title") ||
-        card.querySelector(".pdp-link") ||
-        card.querySelector("h2, h3") ||
-        anchor;
+    const wasNowNodes = Array.from(document.querySelectorAll("li, div, article, section"))
+      .filter((el) => wasNowRegex.test(el.textContent || ""))
+      .map((el) => el.closest("li, div, article, section") || el);
 
-      const title = titleEl?.textContent?.trim() || "";
-      const url = getProductLink(card);
+    const uniqueCards = [];
+    const seen = new Set();
+    for (const card of wasNowNodes) {
+      if (!card) continue;
+      const key = card.getAttribute("data-pid") || card;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      uniqueCards.push(card);
+    }
 
-      const priceNodes = Array.from(
-        card.querySelectorAll("[class*='price' i], [data-testid*='price' i]")
-      );
-      const priceText = priceNodes.length
-        ? priceNodes.map((node) => node.textContent || "").join(" ")
-        : card.textContent || "";
-      const priceMatches = priceText.match(priceRegex) || [];
-      const numbers = parseNumbers(priceMatches);
-
-      let price = null;
-      let wasPrice = null;
-      if (numbers.length === 1) {
-        [price] = numbers;
-      } else if (numbers.length >= 2) {
-        const sorted = [...numbers].sort((a, b) => a - b);
-        price = sorted[0];
-        wasPrice = sorted[sorted.length - 1];
-      }
+    const rawProducts = uniqueCards.map((card) => {
+      const cardText = normalizeText(card.innerText || "");
+      const priceMatch = cardText.match(wasNowRegex);
+      const wasPrice = priceMatch ? priceMatch[1] : null;
+      const price = priceMatch ? priceMatch[2] : null;
 
       return {
-        title,
-        url,
+        title: findTitle(card),
+        url: getProductLink(card),
         image: getImageUrl(card),
         price,
-        wasPrice
+        wasPrice,
+        availability: findStatus(cardText),
+        rating: findRating(cardText)
       };
     });
 
-    return { rawProducts, hrefs };
+    return { rawProducts };
   });
 
   const allRawProducts = [...rawProducts, ...apiProducts];
@@ -803,10 +814,6 @@ const scrapeStore = async () => {
     const price = parsePrice(String(product.price ?? ""));
     const wasPrice = parsePrice(String(product.wasPrice ?? ""));
 
-    if (!price) {
-      continue;
-    }
-
     const discountPct =
       price && wasPrice && wasPrice > 0
         ? Math.round(((wasPrice - price) / wasPrice) * 100)
@@ -819,6 +826,8 @@ const scrapeStore = async () => {
       price,
       wasPrice,
       discountPct,
+      availability: product.availability || null,
+      rating: product.rating || null,
       scrapedAt
     });
     seen.add(normalizedUrl);
@@ -831,11 +840,11 @@ const scrapeStore = async () => {
 
   if (products.length === 0) {
     await page.screenshot({
-      path: path.join(debugDir, `${store.storeId}_page.png`),
+      path: path.join(debugDir, `${store.storeId}_after_confirm.png`),
       fullPage: true
     });
     await fs.writeFile(
-      path.join(debugDir, `${store.storeId}_page.html`),
+      path.join(debugDir, `${store.storeId}_after_confirm.html`),
       await page.content()
     );
   }
@@ -849,8 +858,9 @@ const scrapeStore = async () => {
     JSON.stringify(
       {
         seedUrl,
-        store: store.storeName,
         storeId: store.storeId,
+        storeName: store.storeName,
+        scrapedAt,
         count: products.length,
         products
       },
@@ -858,6 +868,43 @@ const scrapeStore = async () => {
       2
     )
   );
+
+  if (products.length > 0) {
+    const header = [
+      "storeId",
+      "storeName",
+      "title",
+      "url",
+      "price",
+      "wasPrice",
+      "discountPct",
+      "availability",
+      "rating",
+      "image",
+      "scrapedAt"
+    ];
+    const rows = products.map((product) =>
+      [
+        store.storeId,
+        store.storeName,
+        product.title || "",
+        product.url || "",
+        product.price ?? "",
+        product.wasPrice ?? "",
+        product.discountPct ?? "",
+        product.availability ?? "",
+        product.rating ?? "",
+        product.image || "",
+        product.scrapedAt
+      ]
+        .map((value) => `"${String(value).replace(/"/g, '""')}"`)
+        .join(",")
+    );
+    await fs.writeFile(
+      path.join(outputDir, "data.csv"),
+      [header.join(","), ...rows].join("\n")
+    );
+  }
 };
 
 scrapeStore().catch((error) => {
