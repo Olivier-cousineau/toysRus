@@ -20,7 +20,7 @@ jobs:
       - name: Build matrix from stores.json
         id: set-matrix
         run: |
-          node -e "const fs=require('fs');const stores=JSON.parse(fs.readFileSync('public/toysrus/stores.json','utf8'));const matrix={include:stores.map(s=>({slug:s.slug,city:s.city}))};console.log('matrix='+JSON.stringify(matrix));" >> $GITHUB_OUTPUT
+          node -e "const fs=require('fs');const stores=JSON.parse(fs.readFileSync('public/toysrus/stores.json','utf8'));const matrix={include:stores.map(s=>({storeId:s.storeId}))};console.log('matrix='+JSON.stringify(matrix));" >> $GITHUB_OUTPUT
 
   scrape:
     runs-on: ubuntu-latest
@@ -44,16 +44,16 @@ jobs:
         run: npx playwright install chromium
 
       - name: Run scraper
-        run: node scripts/scrape_toysrus_store.mjs --slug ${{ matrix.slug }}
+        run: node scripts/scrape_toysrus_store.mjs --store-id ${{ matrix.storeId }}
 
       - name: Upload store data
         uses: actions/upload-artifact@v4
         with:
-          name: toysrus-${{ matrix.slug }}
+          name: toysrus-${{ matrix.storeId }}
           path: |
-            data/toysrus/${{ matrix.slug }}/data.json
-            outputs/debug/${{ matrix.slug }}_page.png
-            outputs/debug/${{ matrix.slug }}_page.html
+            data/toysrus/${{ matrix.storeId }}/data.json
+            outputs/debug/${{ matrix.storeId }}_page.png
+            outputs/debug/${{ matrix.storeId }}_page.html
           if-no-files-found: warn
 
   finalize:

@@ -1,42 +1,42 @@
 [
   {
-    "city": "Laval",
-    "slug": "laval",
-    "search": "Laval"
+    "storeId": "laval",
+    "storeName": "Laval",
+    "searchText": "Laval"
   },
   {
-    "city": "Montreal",
-    "slug": "montreal",
-    "search": "Montreal"
+    "storeId": "montreal",
+    "storeName": "Montreal",
+    "searchText": "Montreal"
   },
   {
-    "city": "Toronto",
-    "slug": "toronto",
-    "search": "Toronto"
+    "storeId": "toronto",
+    "storeName": "Toronto",
+    "searchText": "Toronto"
   },
   {
-    "city": "Ottawa",
-    "slug": "ottawa",
-    "search": "Ottawa"
+    "storeId": "ottawa",
+    "storeName": "Ottawa",
+    "searchText": "Ottawa"
   },
   {
-    "city": "Calgary",
-    "slug": "calgary",
-    "search": "Calgary"
+    "storeId": "calgary",
+    "storeName": "Calgary",
+    "searchText": "Calgary"
   },
   {
-    "city": "Edmonton",
-    "slug": "edmonton",
-    "search": "Edmonton"
+    "storeId": "edmonton",
+    "storeName": "Edmonton",
+    "searchText": "Edmonton"
   },
   {
-    "city": "Vancouver",
-    "slug": "vancouver",
-    "search": "Vancouver"
+    "storeId": "vancouver",
+    "storeName": "Vancouver",
+    "searchText": "Vancouver"
   },
   {
-    "city": "Winnipeg",
-    "slug": "winnipeg",
-    "search": "Winnipeg"
+    "storeId": "winnipeg",
+    "storeName": "Winnipeg",
+    "searchText": "Winnipeg"
   }
 ]

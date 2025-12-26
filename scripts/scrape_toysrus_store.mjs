@@ -109,35 +109,38 @@ const readStores = async () => {
   return JSON.parse(raw);
 };
 
-const findStore = (stores, slug, city) => {
-  if (slug) {
-    return stores.find((store) => store.slug.toLowerCase() === slug.toLowerCase());
-  }
-  if (city) {
-    return stores.find((store) => store.city.toLowerCase() === city.toLowerCase());
-  }
-  return null;
+const findStore = (stores, storeId) => {
+  if (!storeId) return null;
+  return stores.find(
+    (store) => store.storeId.toLowerCase() === storeId.toLowerCase()
+  );
 };
 
 const parseArgs = () => {
   const args = process.argv.slice(2);
+  const storeIdIndex = args.findIndex(
+    (value) => value === "--store-id" || value === "--storeId"
+  );
   const slugIndex = args.findIndex((value) => value === "--slug");
-  const cityIndex = args.findIndex((value) => value === "--city");
-  const slug = slugIndex >= 0 ? args[slugIndex + 1] : args[0];
-  const city = cityIndex >= 0 ? args[cityIndex + 1] : null;
-  return { slug, city };
+  const storeId =
+    storeIdIndex >= 0
+      ? args[storeIdIndex + 1]
+      : slugIndex >= 0
+        ? args[slugIndex + 1]
+        : args[0];
+  return { storeId };
 };
 
 const scrapeStore = async () => {
-  const { slug, city } = parseArgs();
+  const { storeId } = parseArgs();
   const stores = await readStores();
-  const store = findStore(stores, slug, city);
+  const store = findStore(stores, storeId);
 
   if (!store) {
-    throw new Error(`Store not found for slug=${slug ?? ""} city=${city ?? ""}`);
+    throw new Error(`Store not found for storeId=${storeId ?? ""}`);
   }
 
-  console.log(`[toysrus] store=${store.city} slug=${store.slug}`);
+  console.log(`[toysrus] store=${store.storeName} storeId=${store.storeId}`);
 
   const apiProducts = [];
 
@@ -238,22 +241,57 @@ const scrapeStore = async () => {
   const searchInput = page.locator(
     "input[placeholder*='City' i], input[placeholder*='Postal' i], input[placeholder*='Search' i], input[type='search'], input[aria-label*='search' i]"
   );
-  await searchInput.first().fill(store.search || store.city, { timeout: 15000 });
+  await searchInput.first().fill(store.searchText, { timeout: 15000 });
   await page.waitForTimeout(randomDelay());
 
-  const storeResult = page.locator(
-    `[data-testid*='store' i]:has-text("${store.search || store.city}"), [class*='store' i]:has-text("${store.search || store.city}"), li:has-text("${store.search || store.city}")`
+  const escapeRegExp = (value) =>
+    value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const storeResults = page.locator(
+    "[data-testid*='store' i], [class*='store' i], li"
   );
-  await storeResult.first().waitFor({ timeout: 20000 });
+  await storeResults.first().waitFor({ timeout: 20000 });
 
-  const selectButton = storeResult
-    .first()
-    .locator("button:has-text('Select Store'), button:has-text('Select'), a:has-text('Select Store')");
+  const storeNameRegex = new RegExp(escapeRegExp(store.storeName), "i");
+  const matchingResults = storeResults.filter({ hasText: storeNameRegex });
+  let chosenStore = null;
+  const matchCount = await matchingResults.count();
+
+  for (let i = 0; i < matchCount; i += 1) {
+    const candidate = matchingResults.nth(i);
+    if (await candidate.isVisible().catch(() => false)) {
+      chosenStore = candidate;
+      break;
+    }
+  }
+
+  if (!chosenStore) {
+    const totalCount = await storeResults.count();
+    for (let i = 0; i < totalCount; i += 1) {
+      const candidate = storeResults.nth(i);
+      if (await candidate.isVisible().catch(() => false)) {
+        chosenStore = candidate;
+        break;
+      }
+    }
+  }
+
+  if (!chosenStore) {
+    throw new Error(`No store results found for ${store.storeName}`);
+  }
+
+  const chosenStoreText = (await chosenStore.innerText().catch(() => ""))
+    .replace(/\s+/g, " ")
+    .trim();
+  console.log(`[toysrus] chosenStoreText=${chosenStoreText}`);
+
+  const selectButton = chosenStore.locator(
+    "button:has-text('Select Store'), button:has-text('Select'), a:has-text('Select Store')"
+  );
 
   if (await selectButton.first().isVisible().catch(() => false)) {
     await selectButton.first().click();
   } else {
-    await storeResult.first().click();
+    await chosenStore.click();
   }
 
   const confirmButton = page.locator(
@@ -270,7 +308,7 @@ const scrapeStore = async () => {
   const myStoreText = (await myStoreLabel.first().innerText().catch(() => ""))
     .replace(/\s+/g, " ")
     .trim();
-  console.log(`[toysrus] My Store: ${myStoreText || store.city}`);
+  console.log(`[toysrus] My Store: ${myStoreText || store.storeName}`);
 
   await page.goto(seedUrl, { waitUntil: "domcontentloaded" });
   await handleOneTrust(page);
@@ -467,26 +505,26 @@ const scrapeStore = async () => {
 
   if (products.length === 0) {
     await page.screenshot({
-      path: path.join(debugDir, `${store.slug}_page.png`),
+      path: path.join(debugDir, `${store.storeId}_page.png`),
       fullPage: true
     });
     await fs.writeFile(
-      path.join(debugDir, `${store.slug}_page.html`),
+      path.join(debugDir, `${store.storeId}_page.html`),
       await page.content()
     );
   }
 
   await browser.close();
 
-  const outputDir = path.join("data", "toysrus", store.slug);
+  const outputDir = path.join("data", "toysrus", store.storeId);
   await ensureDir(outputDir);
   await fs.writeFile(
     path.join(outputDir, "data.json"),
     JSON.stringify(
       {
         seedUrl,
-        store: store.city,
-        slug: store.slug,
+        store: store.storeName,
+        storeId: store.storeId,
         count: products.length,
         products
       },
