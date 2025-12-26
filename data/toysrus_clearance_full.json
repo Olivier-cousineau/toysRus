@@ -1,0 +1,24 @@
+{
+  "seedUrl": "https://www.toysrus.ca/en/toysrus/CLEARANCE",
+  "count": 2,
+  "products": [
+    {
+      "title": "KidKraft Park Tower Wooden Swing Set with Slide, Monkey Bar and 3 Swings",
+      "url": "https://www.toysrus.ca/en/toysrus/Deals",
+      "image": "https://www.toysrus.ca/on/demandware.static/-/Library-Sites-toys-global/default/dw3114b746/images/header/logo/toysRUs.svg",
+      "price": 0.28,
+      "wasPrice": 999.99,
+      "discountPct": 100,
+      "scrapedAt": "2025-12-26T15:43:40.782Z"
+    },
+    {
+      "title": "KidKraft Park Tower Wooden Swing Set with Slide, Monkey Bar and 3 Swings",
+      "url": "https://www.toysrus.ca/en/toysrus/CLEARANCE",
+      "image": "https://edge.disstg.commercecloud.salesforce.com/dw/image/v2/BDFX_STG/on/demandware.static/-/Library-Sites-toys-global/default/dwedfbe4d7/images/pages/TRU-d-clearance-060722-en.png",
+      "price": 0.28,
+      "wasPrice": 999.99,
+      "discountPct": 100,
+      "scrapedAt": "2025-12-26T15:43:40.782Z"
+    }
+  ]
+}
