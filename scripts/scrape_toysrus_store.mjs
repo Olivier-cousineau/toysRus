@@ -408,13 +408,16 @@ const scrapeStore = async () => {
   }
 
   if (!confirmClicked) {
-    await page.evaluate(
-      (storeId) =>
-        document
-          .querySelector(`button.js-select-store[value="${storeId}"]`)
-          ?.click(),
-      store.storeId
-    );
+    confirmClicked = await page.evaluate((storeId) => {
+      const button = document.querySelector(
+        `button.js-select-store[value="${storeId}"]`
+      );
+      if (!button) {
+        return false;
+      }
+      button.click();
+      return true;
+    }, store.storeId);
   }
 
   const headerText = (await page
