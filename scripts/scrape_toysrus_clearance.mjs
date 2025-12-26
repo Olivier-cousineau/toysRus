@@ -117,7 +117,37 @@ const scrape = async () => {
     }
   });
 
-  await page.goto(seedUrl, { waitUntil: "domcontentloaded" });
+  const debugDir = path.join("outputs", "debug");
+  await ensureDir(debugDir);
+
+  const response = await page.goto(seedUrl, { waitUntil: "domcontentloaded" });
+  console.log(`[toysrus] responseStatus=${response?.status() ?? "unknown"}`);
+  console.log(`[toysrus] finalUrl=${page.url()}`);
+  console.log(`[toysrus] title=${await page.title()}`);
+
+  await page.waitForLoadState("networkidle");
+  let selectorFound = true;
+  const productSelector =
+    "a[href*='/p/'], .product-tile, [data-test*='product']";
+  try {
+    await page.waitForSelector(productSelector, { timeout: 20000 });
+  } catch {
+    selectorFound = false;
+  }
+
+  await page.screenshot({
+    path: path.join(debugDir, "clearance.png"),
+    fullPage: true
+  });
+  await fs.writeFile(
+    path.join(debugDir, "clearance.html"),
+    await page.content()
+  );
+
+  if (!selectorFound) {
+    throw new Error("No products rendered...");
+  }
+
   await page.waitForTimeout(randomDelay());
 
   let loadMoreClicks = 0;
@@ -281,6 +311,9 @@ const scrape = async () => {
   console.log(
     `[toysrus] rawProducts=${rawProducts.length}, apiProducts=${apiProducts.length}`
   );
+  if (rawProducts.length === 0 && apiProducts.length === 0) {
+    throw new Error("No products rendered...");
+  }
 
   const products = [];
   const seen = new Set();
