@@ -94,6 +94,101 @@ const handleOneTrust = async (page) => {
   console.log(`[onetrust] handled=${handled}`);
 };
 
+const closeBlockingModals = async (page) => {
+  const findCloseButton = async (scope) => {
+    const closeSelectors = [
+      "button[aria-label='Close']",
+      "button.close",
+      "button:has-text('Close')",
+      "button:has-text('×')",
+      ".modal button:has-text('×')"
+    ];
+    for (const selector of closeSelectors) {
+      const button = scope.locator(selector).first();
+      const visible = await button.isVisible().catch(() => false);
+      if (visible) {
+        await button.click({ timeout: 3000 }).catch(() => {});
+        return true;
+      }
+    }
+    return false;
+  };
+
+  const deliveryText = page.locator(
+    "text=/Delivery postal code/i, text=/Set delivery postal code/i"
+  );
+  const deliveryVisible = await deliveryText.first().isVisible().catch(() => false);
+  if (deliveryVisible) {
+    const deliveryContainer = deliveryText
+      .first()
+      .locator(
+        "xpath=ancestor::*[self::div or self::section or self::aside][@role='dialog' or contains(@class,'modal')][1]"
+      );
+    const containerVisible = await deliveryContainer
+      .first()
+      .isVisible()
+      .catch(() => false);
+    if (containerVisible) {
+      await findCloseButton(deliveryContainer.first());
+    } else {
+      await findCloseButton(page);
+    }
+  }
+
+  const cartModalText = page.locator(
+    "text=/Some of the items in your cart/i"
+  );
+  const cartModalVisible = await cartModalText.first().isVisible().catch(() => false);
+  if (cartModalVisible) {
+    const cartContainer = cartModalText
+      .first()
+      .locator(
+        "xpath=ancestor::*[self::div or self::section or self::aside][@role='dialog' or contains(@class,'modal')][1]"
+      );
+    const cartContainerVisible = await cartContainer
+      .first()
+      .isVisible()
+      .catch(() => false);
+    if (cartContainerVisible) {
+      await findCloseButton(cartContainer.first());
+    } else {
+      await findCloseButton(page);
+    }
+  }
+
+  await page.evaluate(() => {
+    const selectors = ["[id*='onetrust']", ".onetrust-pc-dark-filter", ".ot-fade-in"];
+    selectors.forEach((selector) => {
+      document.querySelectorAll(selector).forEach((element) => element.remove());
+    });
+
+    const findCloseButton = (dialog) => {
+      const buttons = Array.from(dialog.querySelectorAll("button"));
+      return buttons.find((button) => {
+        const label = button.getAttribute("aria-label") || "";
+        const text = button.textContent || "";
+        return (
+          /close/i.test(label) ||
+          /close/i.test(text) ||
+          text.trim() === "×"
+        );
+      });
+    };
+
+    document.querySelectorAll("[role='dialog']").forEach((dialog) => {
+      const text = dialog.textContent || "";
+      if (/delivery|postal/i.test(text)) {
+        const closeButton = findCloseButton(dialog);
+        if (closeButton) {
+          closeButton.click();
+        } else {
+          dialog.remove();
+        }
+      }
+    });
+  });
+};
+
 const isLikelyProductUrl = (value) =>
   /\/p\//i.test(value) || /\b\d{5,}\b/.test(value);
 
@@ -443,6 +538,7 @@ const scrapeStore = async () => {
     );
   }
   console.log(`[toysrus] My Store confirmed: ${store.storeName}`);
+  await closeBlockingModals(page);
 
   await modal
     .waitFor({ state: "hidden", timeout: 20000 })
@@ -455,6 +551,7 @@ const scrapeStore = async () => {
   ]);
   await page.reload({ waitUntil: "domcontentloaded" }).catch(() => null);
   await handleOneTrust(page);
+  await closeBlockingModals(page);
 
   const safeReload = async (retries = 2) => {
     for (let attempt = 0; attempt <= retries; attempt += 1) {
@@ -485,6 +582,7 @@ const scrapeStore = async () => {
     ]);
   } else {
     await safeReload();
+    await closeBlockingModals(page);
   }
 
   await handleOneTrust(page);
