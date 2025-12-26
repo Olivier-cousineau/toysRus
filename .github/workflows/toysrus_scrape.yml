@@ -1,0 +1,54 @@
+name: ToysRUs My Store Scrape
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "30 5 * * *"
+
+permissions:
+  contents: write
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    strategy:
+      max-parallel: 4
+      matrix:
+        store-id: [2407, 2408, 2419, 3502]
+    steps:
+      - name: Checkout scraper repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npx playwright install chromium
+
+      - name: Run scraper
+        run: node scripts/scrape_toysrus_store.mjs --store-id ${{ matrix.store-id }}
+
+      - name: Commit and push data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/toysrus
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git commit -m "ToysRUs: update My Store data"
+          git push
+
+      - name: Upload debug artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: toysrus-debug-${{ matrix.store-id }}
+          path: outputs/debug/**
+          if-no-files-found: warn
