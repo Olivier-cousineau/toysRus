@@ -1,0 +1,54 @@
+name: ToysRUs Clearance
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 5 * * *"
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout scraper repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Install Playwright Chromium
+        run: npx playwright install chromium
+
+      - name: Run scraper
+        run: npm run scrape
+
+      - name: Checkout econoplus
+        uses: actions/checkout@v4
+        with:
+          repository: Olivier-cousineau/econoplus
+          token: ${{ secrets.ECONOPLUS_TOKEN }}
+          path: _econoplus
+
+      - name: Copy data into econoplus
+        run: |
+          mkdir -p _econoplus/public/toysrus
+          cp data/online.json _econoplus/public/toysrus/online.json
+          cp data/toysrus_clearance_full.json _econoplus/public/toysrus/clearance_full.json
+
+      - name: Commit and push
+        run: |
+          cd _econoplus
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add public/toysrus/online.json public/toysrus/clearance_full.json
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git commit -m "ToysRUs: update clearance (online)"
+          git push
