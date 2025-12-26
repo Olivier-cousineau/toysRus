@@ -128,11 +128,11 @@ const parseArgs = () => {
       : slugIndex >= 0
         ? args[slugIndex + 1]
         : args[0];
-  return { storeId, storeIdProvided: storeIdIndex >= 0 };
+  return { storeId };
 };
 
 const scrapeStore = async () => {
-  const { storeId, storeIdProvided } = parseArgs();
+  const { storeId } = parseArgs();
   const stores = await readStores();
   const store = findStore(stores, storeId);
 
@@ -238,6 +238,9 @@ const scrapeStore = async () => {
   }
   await page.waitForTimeout(randomDelay());
 
+  const modal = page
+    .locator("[role='dialog'], .modal, #store, .b-store-modal")
+    .first();
   const searchInput = page.locator(
     "input[placeholder*='City' i], input[placeholder*='Postal' i], input[placeholder*='Search' i], input[type='search'], input[aria-label*='search' i]"
   );
@@ -267,23 +270,32 @@ const scrapeStore = async () => {
     }
     return false;
   };
-  const storeResults = page.locator(
-    "[data-testid*='store' i], [class*='store' i], li"
-  );
-  await storeResults.first().waitFor({ timeout: 20000 });
+  const resultsContainer = modal
+    .locator("[data-testid*='store-results'], .store-results, ul, .results")
+    .first();
+  await resultsContainer.waitFor({ timeout: 20000 });
+  const rows = resultsContainer.locator("li:has(button), div:has(button)");
+  const selectButtonSelector =
+    "button:has-text('Select'), button:has-text('Set as My Store'), button:has-text('Make this my store'), button:has-text('Choose'), button:has-text('Select Store')";
+  const rowsWithSelect = rows.filter({
+    has: resultsContainer.locator(selectButtonSelector)
+  });
+  await rowsWithSelect.first().waitFor({ timeout: 20000 });
 
   const storeNameRegex = new RegExp(escapeRegExp(store.storeName), "i");
-  const rawResultsText = await storeResults.evaluateAll((nodes) =>
+  const searchTextRegex = new RegExp(escapeRegExp(store.searchText), "i");
+  const rawResultsText = await rowsWithSelect.evaluateAll((nodes) =>
     nodes
       .map((node) => (node.innerText || node.textContent || "").trim())
       .filter(Boolean)
-      .map((text) => text.replace(/\s+/g, " ").trim())
+      .map((text) => text.replace(/\s+/g, " ").trim().slice(0, 120))
   );
-  console.log(`[toysrus] resultsCount=${rawResultsText.length}`);
+  console.log(`[toysrus] resultsCountRows=${rawResultsText.length}`);
   console.log(
     `[toysrus] topResults=${JSON.stringify(rawResultsText.slice(0, 5))}`
   );
-  const matchingResults = storeResults.filter({ hasText: storeNameRegex });
+  const matchingResults = rowsWithSelect.filter({ hasText: storeNameRegex });
+  const searchTextResults = rowsWithSelect.filter({ hasText: searchTextRegex });
   let chosenStore = null;
   const matchCount = await matchingResults.count();
 
@@ -302,22 +314,13 @@ const scrapeStore = async () => {
   }
 
   if (!chosenStore) {
-    if (storeIdProvided) {
-      await page.screenshot({
-        path: path.join(debugDir, `${store.storeId}_no_match.png`),
-        fullPage: true
-      });
-      await fs.writeFile(
-        path.join(debugDir, `${store.storeId}_no_match.html`),
-        await page.content()
-      );
-      throw new Error(`No store match found for ${store.storeName}`);
-    }
-
-    const totalCount = await storeResults.count();
-    for (let i = 0; i < totalCount; i += 1) {
-      const candidate = storeResults.nth(i);
-      if (await candidate.isVisible().catch(() => false)) {
+    const searchCount = await searchTextResults.count();
+    for (let i = 0; i < searchCount; i += 1) {
+      const candidate = searchTextResults.nth(i);
+      const candidateText = (await candidate.innerText().catch(() => ""))
+        .replace(/\s+/g, " ")
+        .trim();
+      if (candidateText && (await candidate.isVisible().catch(() => false))) {
         chosenStore = candidate;
         break;
       }
@@ -325,7 +328,15 @@ const scrapeStore = async () => {
   }
 
   if (!chosenStore) {
-    throw new Error(`No store results found for ${store.storeName}`);
+    await page.screenshot({
+      path: path.join(debugDir, `${store.storeId}_no_match.png`),
+      fullPage: true
+    });
+    await fs.writeFile(
+      path.join(debugDir, `${store.storeId}_no_match.html`),
+      await page.content()
+    );
+    throw new Error(`No store match found for ${store.storeName}`);
   }
 
   const chosenStoreText = (await chosenStore.innerText().catch(() => ""))
@@ -333,9 +344,7 @@ const scrapeStore = async () => {
     .trim();
   console.log(`[toysrus] chosenStoreText=${chosenStoreText}`);
 
-  const selectButton = chosenStore.locator(
-    "button:has-text('Select Store'), button:has-text('Select'), a:has-text('Select Store')"
-  );
+  const selectButton = chosenStore.locator(selectButtonSelector);
 
   if (await selectButton.first().isVisible().catch(() => false)) {
     await selectButton.first().click();
