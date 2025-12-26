@@ -227,7 +227,7 @@ const scrapeStore = async () => {
   await page.waitForTimeout(1000);
 
   const trigger = page.locator(
-    "button:has-text('My Store'), button:has-text('Select Store'), a:has-text('My Store'), a:has-text('Select Store')"
+    "button[aria-label='Select Your Store'], .js-btn-get-store"
   );
   await handleOneTrust(page);
   try {
@@ -241,10 +241,12 @@ const scrapeStore = async () => {
   const modal = page
     .locator("[role='dialog'], .modal, #store, .b-store-modal")
     .first();
-  const searchInput = page.locator(
-    "input[placeholder*='City' i], input[placeholder*='Postal' i], input[placeholder*='Search' i], input[type='search'], input[aria-label*='search' i]"
+  const searchInput = modal.locator(
+    "input[placeholder*='Enter a Location' i], input[aria-label*='Enter a Location' i], input[type='search']"
   );
-  await searchInput.first().fill(store.searchText, { timeout: 15000 });
+  await searchInput.first().click({ timeout: 15000 });
+  await searchInput.first().fill("");
+  await searchInput.first().type(store.storeName, { delay: 50 });
   await page.waitForTimeout(randomDelay());
 
   const escapeRegExp = (value) =>
@@ -270,37 +272,37 @@ const scrapeStore = async () => {
     }
     return false;
   };
-  const resultsContainer = modal
-    .locator("[data-testid*='store-results'], .store-results, ul, .results")
-    .first();
-  await resultsContainer.waitFor({ timeout: 20000 });
-  const rows = resultsContainer.locator("li:has(button), div:has(button)");
-  const selectButtonSelector =
-    "button:has-text('Select'), button:has-text('Set as My Store'), button:has-text('Make this my store'), button:has-text('Choose'), button:has-text('Select Store')";
-  const rowsWithSelect = rows.filter({
-    has: resultsContainer.locator(selectButtonSelector)
-  });
-  await rowsWithSelect.first().waitFor({ timeout: 20000 });
+  const findStoresButton = modal.locator(
+    "button:has-text('Find Stores'), button:has-text('Trouver des magasins')"
+  );
+  await findStoresButton.first().click({ timeout: 15000 });
 
   const storeNameRegex = new RegExp(escapeRegExp(store.storeName), "i");
-  const searchTextRegex = new RegExp(escapeRegExp(store.searchText), "i");
-  const rawResultsText = await rowsWithSelect.evaluateAll((nodes) =>
-    nodes
-      .map((node) => (node.innerText || node.textContent || "").trim())
-      .filter(Boolean)
-      .map((text) => text.replace(/\s+/g, " ").trim().slice(0, 120))
+  const storeResultCandidates = modal.locator(
+    "li:has(button), li:has(a), div:has(button), div:has(a)"
   );
-  console.log(`[toysrus] resultsCountRows=${rawResultsText.length}`);
-  console.log(
-    `[toysrus] topResults=${JSON.stringify(rawResultsText.slice(0, 5))}`
-  );
-  const matchingResults = rowsWithSelect.filter({ hasText: storeNameRegex });
-  const searchTextResults = rowsWithSelect.filter({ hasText: searchTextRegex });
-  let chosenStore = null;
-  const matchCount = await matchingResults.count();
+  const storeResultMatches = storeResultCandidates.filter({
+    hasText: storeNameRegex
+  });
 
+  let chosenStore = null;
+  try {
+    await storeResultMatches.first().waitFor({ timeout: 20000 });
+  } catch {
+    await page.screenshot({
+      path: path.join(debugDir, `${store.storeName}_modal.png`),
+      fullPage: true
+    });
+    await fs.writeFile(
+      path.join(debugDir, `${store.storeName}_modal.html`),
+      await page.content()
+    );
+    throw new Error(`No store match found for ${store.storeName}`);
+  }
+
+  const matchCount = await storeResultMatches.count();
   for (let i = 0; i < matchCount; i += 1) {
-    const candidate = matchingResults.nth(i);
+    const candidate = storeResultMatches.nth(i);
     const candidateText = (await candidate.innerText().catch(() => ""))
       .replace(/\s+/g, " ")
       .trim();
@@ -314,26 +316,12 @@ const scrapeStore = async () => {
   }
 
   if (!chosenStore) {
-    const searchCount = await searchTextResults.count();
-    for (let i = 0; i < searchCount; i += 1) {
-      const candidate = searchTextResults.nth(i);
-      const candidateText = (await candidate.innerText().catch(() => ""))
-        .replace(/\s+/g, " ")
-        .trim();
-      if (candidateText && (await candidate.isVisible().catch(() => false))) {
-        chosenStore = candidate;
-        break;
-      }
-    }
-  }
-
-  if (!chosenStore) {
     await page.screenshot({
-      path: path.join(debugDir, `${store.storeId}_no_match.png`),
+      path: path.join(debugDir, `${store.storeName}_modal.png`),
       fullPage: true
     });
     await fs.writeFile(
-      path.join(debugDir, `${store.storeId}_no_match.html`),
+      path.join(debugDir, `${store.storeName}_modal.html`),
       await page.content()
     );
     throw new Error(`No store match found for ${store.storeName}`);
@@ -344,35 +332,37 @@ const scrapeStore = async () => {
     .trim();
   console.log(`[toysrus] chosenStoreText=${chosenStoreText}`);
 
-  const selectButton = chosenStore.locator(selectButtonSelector);
-
-  if (await selectButton.first().isVisible().catch(() => false)) {
-    await selectButton.first().click();
-  } else {
-    await chosenStore.click();
-  }
+  await chosenStore.click();
 
   const confirmButton = page.locator(
-    "button:has-text('Set as My Store'), button:has-text('Confirm'), button:has-text('Save')"
+    "button:has-text('Confirm as My Store'), button:has-text('Confirmer comme mon magasin'), button:has-text('Confirmer en tant que mon magasin')"
   );
-  if (await confirmButton.first().isVisible().catch(() => false)) {
-    await confirmButton.first().click();
-  }
+  await confirmButton.first().waitFor({ timeout: 20000 });
+  await confirmButton.first().click();
 
-  const myStoreLabel = page.locator(
-    "button:has-text('My Store'), a:has-text('My Store'), [data-testid*='my-store' i]"
-  );
-  await myStoreLabel.first().waitFor({ timeout: 20000 });
-  const myStoreText = (await myStoreLabel.first().innerText().catch(() => ""))
-    .replace(/\s+/g, " ")
+  const headerText = (await page
+    .locator("header")
+    .first()
+    .innerText()
+    .catch(() => "")).replace(/\s+/g, " ")
     .trim();
-  console.log(`[toysrus] My Store: ${myStoreText || store.storeName}`);
+  const headerHasMyStore = /my store/i.test(headerText);
+  const headerHasStoreName = storeNameRegex.test(headerText);
+
+  if (!headerHasMyStore || !headerHasStoreName) {
+    await page.screenshot({
+      path: path.join(debugDir, `${store.storeName}_after_confirm.png`),
+      fullPage: true
+    });
+    throw new Error(
+      `My Store mismatch: header="${headerText}" expected store="${store.storeName}"`
+    );
+  }
+  console.log(`[toysrus] My Store confirmed: ${store.storeName}`);
 
   await page.goto(seedUrl, { waitUntil: "domcontentloaded" });
   await handleOneTrust(page);
   await page.waitForTimeout(1000);
-  const expectedStoreLabel = myStoreLabel.filter({ hasText: storeNameRegex });
-  await expectedStoreLabel.first().waitFor({ timeout: 20000 }).catch(() => {});
 
   const productSelector = "a[href*='/p/'], .product-tile, [data-test*='product']";
   await page.waitForSelector(productSelector, { timeout: 20000 });
