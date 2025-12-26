@@ -195,10 +195,11 @@ const scrape = async () => {
   await page.waitForLoadState("networkidle");
   await handleOneTrust(page);
   let selectorFound = true;
-  const productSelector =
-    "a[href*='/p/'], .product-tile, [data-test*='product']";
   try {
-    await page.waitForSelector(productSelector, { timeout: 20000 });
+    await page
+      .getByText(/Showing \d+ of \d+ products/i)
+      .first()
+      .waitFor({ timeout: 20000 });
   } catch {
     selectorFound = false;
   }
@@ -226,6 +227,10 @@ const scrape = async () => {
       break;
     }
 
+    const addToCartCount = await page
+      .locator("button", { hasText: /Add to Cart|Ajouter au panier/i })
+      .count()
+      .catch(() => 0);
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
     await page.waitForTimeout(randomDelay());
 
@@ -234,6 +239,21 @@ const scrape = async () => {
     loadMoreClicks += 1;
     console.log(`[toysrus] loadMore click ${loadMoreClicks}`);
     await page.waitForTimeout(randomDelay());
+    try {
+      await page.waitForFunction(
+        (previousCount) => {
+          const buttons = Array.from(document.querySelectorAll("button"));
+          const consider = buttons.filter((button) =>
+            /Add to Cart|Ajouter au panier/i.test(button.textContent || "")
+          );
+          return consider.length > previousCount;
+        },
+        addToCartCount,
+        { timeout: 15000 }
+      );
+    } catch {
+      break;
+    }
   }
 
   await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
@@ -242,7 +262,7 @@ const scrape = async () => {
   const scrapedAt = new Date().toISOString();
 
   const { rawProducts, hrefs } = await page.evaluate(() => {
-    const priceRegex = /\$\s?[\d.,]+/g;
+    const wasNowRegex = /Was:\s*(\$[\d.,]+)\s*to\s*Now:\s*(\$[\d.,]+)/i;
 
     const getImageUrl = (card) => {
       const img = card.querySelector("img");
@@ -268,11 +288,25 @@ const scrape = async () => {
       return null;
     };
 
-    const parseNumbers = (values) =>
-      values
-        .map((value) => value.replace(/[^\d.,]/g, "").replace(/,/g, ""))
-        .map((value) => Number.parseFloat(value))
-        .filter((value) => Number.isFinite(value));
+    const parsePrice = (value) => {
+      const normalized = value.replace(/[^\d.,]/g, "").replace(/,/g, "");
+      const parsed = Number.parseFloat(normalized);
+      return Number.isFinite(parsed) ? parsed : null;
+    };
+
+    const pickTitleFromText = (cardText) => {
+      const lines = cardText
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean);
+      const priceIndex = lines.findIndex((line) =>
+        /Was:\s*\$|Now:\s*\$|\$\s*\d|\d+\.\d{2}/i.test(line)
+      );
+      if (priceIndex > 0) {
+        return lines[priceIndex - 1];
+      }
+      return lines[0] || "";
+    };
 
     const getProductLink = (card) => {
       const directAnchor = card.querySelector(
@@ -294,63 +328,46 @@ const scrape = async () => {
       return "";
     };
 
-    const selectors = [
-      "article",
-      "li",
-      ".product-tile",
-      ".product-card",
-      "[data-testid*='product' i]",
-      "[data-qa*='product' i]"
-    ];
+    const addToCartButtons = Array.from(
+      document.querySelectorAll("button")
+    ).filter((button) =>
+      /Add to Cart|Ajouter au panier/i.test(button.textContent || "")
+    );
+    const cards = addToCartButtons
+      .map((button) => {
+        const result = document.evaluate(
+          "ancestor::*[self::li or self::div][1]",
+          button,
+          null,
+          XPathResult.FIRST_ORDERED_NODE_TYPE,
+          null
+        );
+        return result.singleNodeValue;
+      })
+      .filter(Boolean);
 
-    const cards = selectors
-      .flatMap((selector) => Array.from(document.querySelectorAll(selector)))
-      .filter((el) => {
-        const href = getProductLink(el);
-        return href && /\/p\//i.test(href);
-      });
+    const uniqueCards = Array.from(new Set(cards));
 
-    const hrefs = cards.map((card) => getProductLink(card)).filter(Boolean);
+    const hrefs = uniqueCards.map((card) => getProductLink(card)).filter(Boolean);
 
-    const rawProducts = cards.map((card) => {
-      const anchor = card.querySelector(
-        "a[href*='/p/'], a[href*='/product/'], a[href*='/toysrus/']"
-      );
-      const titleEl =
-        card.querySelector("[data-testid*='product' i]") ||
-        card.querySelector(".product-title") ||
-        card.querySelector(".pdp-link") ||
-        card.querySelector("h2, h3") ||
-        anchor;
-
-      const title = titleEl?.textContent?.trim() || "";
+    const rawProducts = uniqueCards.map((card) => {
+      const cardText = card.innerText || "";
+      const title = pickTitleFromText(cardText);
       const url = getProductLink(card);
-
-      const priceNodes = Array.from(
-        card.querySelectorAll("[class*='price' i], [data-testid*='price' i]")
+      const wasNowMatch = cardText.match(wasNowRegex);
+      const wasPrice = wasNowMatch ? parsePrice(wasNowMatch[1]) : null;
+      const price = wasNowMatch ? parsePrice(wasNowMatch[2]) : null;
+      const statusMatch = cardText.match(
+        /In Stock|Out of Stock|Pickup Only|In Store Only/i
       );
-      const priceText = priceNodes.length
-        ? priceNodes.map((node) => node.textContent || "").join(" ")
-        : card.textContent || "";
-      const priceMatches = priceText.match(priceRegex) || [];
-      const numbers = parseNumbers(priceMatches);
-
-      let price = null;
-      let wasPrice = null;
-      if (numbers.length === 1) {
-        [price] = numbers;
-      } else if (numbers.length >= 2) {
-        const sorted = [...numbers].sort((a, b) => a - b);
-        price = sorted[0];
-        wasPrice = sorted[sorted.length - 1];
-      }
 
       return {
         title,
         url,
         image: getImageUrl(card),
         price,
-        wasPrice
+        wasPrice,
+        status: statusMatch ? statusMatch[0] : null
       };
     });
 
