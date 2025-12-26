@@ -23,6 +23,73 @@ const normalizeUrl = (value) => {
   }
 };
 
+const handleOneTrust = async (page) => {
+  let handled = false;
+  const acceptSelectors = [
+    "button:has-text('Accept All')",
+    "button:has-text('Accept Cookies')",
+    "button:has-text('I Accept')",
+    "button:has-text('Tout accepter')",
+    "button:has-text('Accepter tout')",
+    "button#onetrust-accept-btn-handler"
+  ];
+  const closeSelectors = [
+    "button[aria-label*='close' i]",
+    "button:has-text('Close')",
+    "button:has-text('Fermer')",
+    ".onetrust-close-btn-handler",
+    "#onetrust-close-btn-container button"
+  ];
+
+  const tryClick = async (selector) => {
+    const button = page.locator(selector).first();
+    const visible = await button.isVisible().catch(() => false);
+    if (!visible) return false;
+    await button.click({ timeout: 3000 }).catch(() => {});
+    return true;
+  };
+
+  for (const selector of acceptSelectors) {
+    if (await tryClick(selector)) {
+      handled = true;
+      break;
+    }
+  }
+
+  if (!handled) {
+    for (const selector of closeSelectors) {
+      if (await tryClick(selector)) {
+        handled = true;
+        break;
+      }
+    }
+  }
+
+  try {
+    await page.waitForSelector(".onetrust-pc-dark-filter, #onetrust-consent-sdk", {
+      state: "hidden",
+      timeout: 5000
+    });
+  } catch {
+    // ignore timeout
+  }
+
+  const overlayVisible = await page
+    .locator(".onetrust-pc-dark-filter, #onetrust-consent-sdk")
+    .first()
+    .isVisible()
+    .catch(() => false);
+
+  if (overlayVisible) {
+    await page.evaluate(() => {
+      document.querySelector("#onetrust-accept-btn-handler")?.click();
+    });
+    handled = true;
+  }
+
+  console.log(`[onetrust] handled=${handled}`);
+};
+
 const isLikelyProductUrl = (value) =>
   /\/p\//i.test(value) || /\b\d{5,}\b/.test(value);
 
@@ -126,6 +193,7 @@ const scrape = async () => {
   console.log(`[toysrus] title=${await page.title()}`);
 
   await page.waitForLoadState("networkidle");
+  await handleOneTrust(page);
   let selectorFound = true;
   const productSelector =
     "a[href*='/p/'], .product-tile, [data-test*='product']";
@@ -161,6 +229,7 @@ const scrape = async () => {
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
     await page.waitForTimeout(randomDelay());
 
+    await handleOneTrust(page);
     await loadMoreButton.first().click();
     loadMoreClicks += 1;
     console.log(`[toysrus] loadMore click ${loadMoreClicks}`);
