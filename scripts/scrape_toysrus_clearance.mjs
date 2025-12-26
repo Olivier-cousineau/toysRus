@@ -23,6 +23,9 @@ const normalizeUrl = (value) => {
   }
 };
 
+const isLikelyProductUrl = (value) =>
+  /\/p\//i.test(value) || /\b\d{5,}\b/.test(value);
+
 const parsePrice = (value) => {
   if (!value) return null;
   const cleaned = value.replace(/[^\d.,]/g, "").replace(/,/g, "");
@@ -37,9 +40,81 @@ const ensureDir = async (dir) => {
 const scrape = async () => {
   console.log(`[toysrus] seedUrl=${seedUrl}`);
 
+  const apiProducts = [];
+
+  const pushApiProducts = (payload) => {
+    if (!payload || typeof payload !== "object") return;
+    const collected = [];
+    const pushProduct = (product) => {
+      if (!product || typeof product !== "object") return;
+      collected.push({
+        title: product.title || product.name || product.productName || "",
+        url:
+          product.url ||
+          product.productUrl ||
+          product.pdpUrl ||
+          product.canonicalUrl ||
+          "",
+        image:
+          product.image?.url ||
+          product.imageUrl ||
+          product.primaryImage?.url ||
+          product.images?.[0]?.url ||
+          null,
+        price:
+          product.price?.sales?.value ||
+          product.price?.sale ||
+          product.price?.value ||
+          product.price ||
+          null,
+        wasPrice:
+          product.price?.list?.value ||
+          product.price?.regular ||
+          product.price?.msrp ||
+          product.wasPrice ||
+          null
+      });
+    };
+
+    const candidates = [
+      payload.products,
+      payload.items,
+      payload.hits,
+      payload.data?.products,
+      payload.data?.items,
+      payload.data?.hits,
+      payload.productSearch?.hits,
+      payload.productSearch?.products,
+      payload.search?.products
+    ];
+
+    for (const list of candidates) {
+      if (Array.isArray(list)) {
+        list.forEach((item) => pushProduct(item?.product || item));
+      }
+    }
+
+    if (collected.length > 0) {
+      apiProducts.push(...collected);
+    }
+  };
+
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({
     viewport: { width: 1280, height: 720 }
+  });
+
+  page.on("response", async (response) => {
+    const url = response.url();
+    if (!/clearance/i.test(url)) return;
+    const contentType = response.headers()["content-type"] || "";
+    if (!contentType.includes("application/json")) return;
+    try {
+      const payload = await response.json();
+      pushApiProducts(payload);
+    } catch {
+      // ignore non-json payloads
+    }
   });
 
   await page.goto(seedUrl, { waitUntil: "domcontentloaded" });
@@ -67,7 +142,7 @@ const scrape = async () => {
 
   const scrapedAt = new Date().toISOString();
 
-  const rawProducts = await page.evaluate(() => {
+  const { rawProducts, hrefs } = await page.evaluate(() => {
     const priceRegex = /\$\s?[\d.,]+/g;
 
     const getImageUrl = (card) => {
@@ -100,12 +175,48 @@ const scrape = async () => {
         .map((value) => Number.parseFloat(value))
         .filter((value) => Number.isFinite(value));
 
-    const cards = Array.from(
-      document.querySelectorAll("article, li, div")
-    ).filter((el) => el.querySelector("a[href*='/toysrus/']"));
+    const getProductLink = (card) => {
+      const directAnchor = card.querySelector(
+        "a[href*='/p/'], a[href*='/product/'], a[href*='/toysrus/']"
+      );
+      if (directAnchor) {
+        return directAnchor.getAttribute("href") || "";
+      }
 
-    return cards.map((card) => {
-      const anchor = card.querySelector("a[href*='/toysrus/']");
+      const dataEl = card.querySelector("[data-href], [data-url]");
+      if (dataEl) {
+        return (
+          dataEl.getAttribute("data-href") ||
+          dataEl.getAttribute("data-url") ||
+          ""
+        );
+      }
+
+      return "";
+    };
+
+    const selectors = [
+      "article",
+      "li",
+      ".product-tile",
+      ".product-card",
+      "[data-testid*='product' i]",
+      "[data-qa*='product' i]"
+    ];
+
+    const cards = selectors
+      .flatMap((selector) => Array.from(document.querySelectorAll(selector)))
+      .filter((el) => {
+        const href = getProductLink(el);
+        return href && /\/p\//i.test(href);
+      });
+
+    const hrefs = cards.map((card) => getProductLink(card)).filter(Boolean);
+
+    const rawProducts = cards.map((card) => {
+      const anchor = card.querySelector(
+        "a[href*='/p/'], a[href*='/product/'], a[href*='/toysrus/']"
+      );
       const titleEl =
         card.querySelector("[data-testid*='product' i]") ||
         card.querySelector(".product-title") ||
@@ -114,7 +225,7 @@ const scrape = async () => {
         anchor;
 
       const title = titleEl?.textContent?.trim() || "";
-      const url = anchor?.getAttribute("href") || "";
+      const url = getProductLink(card);
 
       const priceNodes = Array.from(
         card.querySelectorAll("[class*='price' i], [data-testid*='price' i]")
@@ -143,16 +254,44 @@ const scrape = async () => {
         wasPrice
       };
     });
+
+    return { rawProducts, hrefs };
   });
 
   await browser.close();
 
+  const allRawProducts = [...rawProducts, ...apiProducts];
+  const hrefCounts = new Map();
+  for (const href of hrefs) {
+    hrefCounts.set(href, (hrefCounts.get(href) || 0) + 1);
+  }
+
+  const uniqueHrefs = Array.from(hrefCounts.keys());
+  console.log(`[toysrus] hrefUnique=${uniqueHrefs.length}`);
+  console.log(
+    `[toysrus] hrefUnique sample=${uniqueHrefs.slice(0, 20).join(" | ")}`
+  );
+  const topHrefs = Array.from(hrefCounts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10)
+    .map(([href, count]) => `${href} -> ${count}`)
+    .join(" | ");
+  console.log(`[toysrus] hrefTop10=${topHrefs}`);
+
+  console.log(
+    `[toysrus] rawProducts=${rawProducts.length}, apiProducts=${apiProducts.length}`
+  );
+
   const products = [];
   const seen = new Set();
 
-  for (const product of rawProducts) {
+  for (const product of allRawProducts) {
     const normalizedUrl = normalizeUrl(product.url);
-    if (!normalizedUrl || seen.has(normalizedUrl)) {
+    if (
+      !normalizedUrl ||
+      !isLikelyProductUrl(normalizedUrl) ||
+      seen.has(normalizedUrl)
+    ) {
       continue;
     }
 
@@ -185,7 +324,7 @@ const scrape = async () => {
   }
 
   console.log(
-    `[toysrus] extractedRaw=${rawProducts.length}, unique=${seen.size}, final=${products.length}`
+    `[toysrus] extractedRaw=${allRawProducts.length}, unique=${seen.size}, final=${products.length}`
   );
 
   await ensureDir("data");
