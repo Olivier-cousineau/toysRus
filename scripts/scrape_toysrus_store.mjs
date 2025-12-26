@@ -29,8 +29,10 @@ const handleOneTrust = async (page) => {
     "button:has-text('Accept All')",
     "button:has-text('Accept Cookies')",
     "button:has-text('I Accept')",
+    "button:has-text('Accept')",
     "button:has-text('Tout accepter')",
     "button:has-text('Accepter tout')",
+    "button:has-text('Accepter')",
     "button#onetrust-accept-btn-handler"
   ];
   const closeSelectors = [
@@ -81,10 +83,12 @@ const handleOneTrust = async (page) => {
     .catch(() => false);
 
   if (overlayVisible) {
-    await page.evaluate(() => {
-      document.querySelector("#onetrust-accept-btn-handler")?.click();
-    });
-    handled = true;
+    for (const selector of acceptSelectors) {
+      if (await tryClick(selector)) {
+        handled = true;
+        break;
+      }
+    }
   }
 
   console.log(`[onetrust] handled=${handled}`);
@@ -237,16 +241,69 @@ const scrapeStore = async () => {
     await trigger.first().click({ timeout: 20000 });
   }
   await page.waitForTimeout(randomDelay());
+  await handleOneTrust(page);
 
-  const modal = page
-    .locator("[role='dialog'], .modal, #store, .b-store-modal")
-    .first();
-  const searchInput = modal.locator(
-    "input[placeholder*='Enter a Location' i], input[aria-label*='Enter a Location' i], input[type='search']"
-  );
-  await searchInput.first().click({ timeout: 15000 });
-  await searchInput.first().fill("");
-  await searchInput.first().type(store.storeName, { delay: 50 });
+  const modalCandidates = [
+    page
+      .locator("button.js-btn-get-store")
+      .first()
+      .locator("xpath=ancestor::*[self::header or self::div][1]"),
+    page
+      .locator("text=SELECT YOUR STORE")
+      .first()
+      .locator(
+        "xpath=ancestor::*[self::div][@role='dialog' or contains(@class,'modal')][1]"
+      )
+  ];
+  let modal = null;
+  for (const candidate of modalCandidates) {
+    if ((await candidate.count().catch(() => 0)) > 0) {
+      modal = candidate;
+      break;
+    }
+  }
+  if (!modal) {
+    modal = page.locator("[role='dialog'], .modal, #store, .b-store-modal").first();
+  }
+
+  const inputSelectors = [
+    "input[type='search']",
+    "input[type='text']",
+    "input[name*='location' i]",
+    "input[id*='location' i]",
+    "input[placeholder*='Location' i]",
+    "input[aria-label*='Location' i]",
+    "input"
+  ];
+  let searchInput = null;
+  for (const selector of inputSelectors) {
+    const candidates = modal.locator(selector);
+    const count = await candidates.count().catch(() => 0);
+    for (let i = 0; i < count; i += 1) {
+      const candidate = candidates.nth(i);
+      const visible = await candidate.isVisible().catch(() => false);
+      const enabled = await candidate.isEnabled().catch(() => false);
+      if (visible && enabled) {
+        searchInput = candidate;
+        break;
+      }
+    }
+    if (searchInput) break;
+  }
+  if (!searchInput) {
+    await page.screenshot({
+      path: path.join(debugDir, `${store.storeId}_modal.png`),
+      fullPage: true
+    });
+    await fs.writeFile(
+      path.join(debugDir, `${store.storeId}_modal.html`),
+      await page.content()
+    );
+    throw new Error("Store locator input not found");
+  }
+  await searchInput.click({ timeout: 15000 });
+  await searchInput.fill("");
+  await searchInput.type(store.storeName, { delay: 50 });
   await page.waitForTimeout(randomDelay());
 
   const escapeRegExp = (value) =>
