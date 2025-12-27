@@ -544,7 +544,7 @@ const scrapeStore = async () => {
     .catch(() => 0);
   const countLoadMoreVisible = await page
     .locator(
-      "button:has-text('Load More'), button:has-text('LOAD MORE'), a:has-text('Load More'), a:has-text('LOAD MORE'), [role='button']:has-text('Load More'), [role='button']:has-text('LOAD MORE')"
+      "button:has-text('Load More'):visible, button:has-text('LOAD MORE'):visible, a:has-text('Load More'):visible, a:has-text('LOAD MORE'):visible, [role='button']:has-text('Load More'):visible, [role='button']:has-text('LOAD MORE'):visible"
     )
     .filter({ hasText: /Load More/i })
     .count()
@@ -556,7 +556,7 @@ const scrapeStore = async () => {
   let loadMoreClicks = 0;
   let noProgress = 0;
   const loadMoreLocator = page.locator(
-    "button:has-text('Load More'), button:has-text('LOAD MORE'), a:has-text('Load More'), a:has-text('LOAD MORE'), [role='button']:has-text('Load More'), [role='button']:has-text('LOAD MORE')"
+    "button:has-text('Load More'):visible, button:has-text('LOAD MORE'):visible, a:has-text('Load More'):visible, a:has-text('LOAD MORE'):visible, [role='button']:has-text('Load More'):visible, [role='button']:has-text('LOAD MORE'):visible"
   );
   const getProgressCounts = async () => {
     const wasNowCount = await page.locator("text=/Was:\\s*\\$/i").count().catch(() => 0);
