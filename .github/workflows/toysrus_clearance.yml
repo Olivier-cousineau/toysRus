@@ -8,6 +8,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: toysrus-data
+  cancel-in-progress: false
+
 jobs:
   scrape:
     runs-on: ubuntu-latest
@@ -21,7 +25,7 @@ jobs:
           node-version: 20
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install
 
       - name: Install Playwright Chromium
         run: npx playwright install chromium
@@ -49,4 +53,5 @@ jobs:
             exit 0
           fi
           git commit -m "ToysRUs: update clearance data"
-          git push
+          git pull --rebase origin main
+          git push origin main
