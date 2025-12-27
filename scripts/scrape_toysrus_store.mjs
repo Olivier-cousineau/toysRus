@@ -197,41 +197,52 @@ const closeBlockingModals = async (page) => {
     }
   }
 
-  await page.evaluate(() => {
-    const selectors = [
-      "#onetrust-consent-sdk",
-      ".onetrust-pc-dark-filter",
-      ".ot-fade-in"
-    ];
-    selectors.forEach((selector) => {
-      document.querySelectorAll(selector).forEach((element) => element.remove());
-    });
-
-    const findCloseButton = (dialog) => {
-      const buttons = Array.from(dialog.querySelectorAll("button"));
-      return buttons.find((button) => {
-        const label = button.getAttribute("aria-label") || "";
-        const text = button.textContent || "";
-        return (
-          /close/i.test(label) ||
-          /close/i.test(text) ||
-          text.trim() === "×"
-        );
+  try {
+    await page.evaluate(() => {
+      const selectors = [
+        "#onetrust-consent-sdk",
+        ".onetrust-pc-dark-filter",
+        ".ot-fade-in"
+      ];
+      selectors.forEach((selector) => {
+        document.querySelectorAll(selector).forEach((element) => element.remove());
       });
-    };
 
-    document.querySelectorAll("[role='dialog']").forEach((dialog) => {
-      const text = dialog.textContent || "";
-      if (/delivery|postal/i.test(text)) {
-        const closeButton = findCloseButton(dialog);
-        if (closeButton) {
-          closeButton.click();
-        } else {
-          dialog.remove();
+      const findCloseButton = (dialog) => {
+        const buttons = Array.from(dialog.querySelectorAll("button"));
+        return buttons.find((button) => {
+          const label = button.getAttribute("aria-label") || "";
+          const text = button.textContent || "";
+          return (
+            /close/i.test(label) ||
+            /close/i.test(text) ||
+            text.trim() === "×"
+          );
+        });
+      };
+
+      document.querySelectorAll("[role='dialog']").forEach((dialog) => {
+        const text = dialog.textContent || "";
+        if (/delivery|postal/i.test(text)) {
+          const closeButton = findCloseButton(dialog);
+          if (closeButton) {
+            closeButton.click();
+          } else {
+            dialog.remove();
+          }
         }
-      }
+      });
     });
-  });
+  } catch (error) {
+    const message = String(error?.message || error);
+    if (
+      message.includes("Execution context was destroyed") ||
+      message.includes("Cannot find context")
+    ) {
+      return;
+    }
+    throw error;
+  }
 
   await page.waitForTimeout(randomShortDelay());
 };
@@ -383,6 +394,7 @@ const scrapeStore = async () => {
     "button[aria-label='Select Your Store'], .js-btn-get-store"
   );
   await handleOneTrust(page);
+  await closeBlockingModals(page);
   try {
     await trigger.first().click({ timeout: 20000 });
   } catch {
@@ -414,6 +426,7 @@ const scrapeStore = async () => {
   if (!modal) {
     modal = page.locator("[role='dialog'], .modal, #store, .b-store-modal").first();
   }
+  await modal.waitFor({ state: "visible", timeout: 30000 });
 
   const inputSelectors = [
     "input[type='search']",
@@ -484,16 +497,18 @@ const scrapeStore = async () => {
   await findStoresButton.first().click({ timeout: 15000 });
 
   const storeNameRegex = new RegExp(escapeRegExp(storeName), "i");
-  const storeResultCandidates = modal.locator(
-    "li:has(button), li:has(a), div:has(button), div:has(a)"
-  );
-  const storeResultMatches = storeResultCandidates.filter({
-    hasText: storeNameRegex
-  });
+  const resultsArea = modal
+    .locator(".store-results, [data-testid*='store-results'], ul, .results")
+    .first();
+  await resultsArea.waitFor({ state: "visible", timeout: 30000 });
 
-  let chosenStore = null;
+  const storeRow = resultsArea
+    .locator(":scope *")
+    .filter({ hasText: new RegExp(storeName, "i") })
+    .first();
+
   try {
-    await storeResultMatches.first().waitFor({ timeout: 20000 });
+    await storeRow.waitFor({ state: "visible", timeout: 30000 });
   } catch {
     await page.screenshot({
       path: path.join(debugDir, `${store.storeId}_modal.png`),
@@ -506,65 +521,56 @@ const scrapeStore = async () => {
     throw new Error(`No store match found for ${storeName}`);
   }
 
-  const matchCount = await storeResultMatches.count();
-  for (let i = 0; i < matchCount; i += 1) {
-    const candidate = storeResultMatches.nth(i);
-    const candidateText = (await candidate.innerText().catch(() => ""))
-      .replace(/\s+/g, " ")
-      .trim();
-    if (
-      isStrongStoreMatch(candidateText) &&
-      (await candidate.isVisible().catch(() => false))
-    ) {
-      chosenStore = candidate;
-      break;
-    }
-  }
-
-  if (!chosenStore) {
-    await page.screenshot({
-      path: path.join(debugDir, `${store.storeId}_modal.png`),
-      fullPage: true
-    });
-    await fs.writeFile(
-      path.join(debugDir, `${store.storeId}_modal.html`),
-      await page.content()
-    );
-    throw new Error(`No store match found for ${storeName}`);
-  }
-
-  const chosenStoreText = (await chosenStore.innerText().catch(() => ""))
+  const chosenStoreText = (await storeRow.innerText().catch(() => ""))
     .replace(/\s+/g, " ")
     .trim();
   console.log(`[toysrus] chosenStoreText=${chosenStoreText}`);
 
-  await chosenStore.click();
+  if (isStrongStoreMatch(chosenStoreText)) {
+    try {
+      await storeRow.click({ timeout: 2000 });
+    } catch {
+      // ignore if row isn't clickable
+    }
+  }
 
-  const row = chosenStore;
-  const confirmButton = row
-    .locator("button.js-select-store, button:has-text('Confirm as My Store')")
+  const confirmButton = storeRow
+    .locator(
+      "button.js-select-store, button:has-text('Confirm as My Store'), button:has-text('Confirmer comme mon magasin')"
+    )
     .first();
+  await resultsArea.evaluate((el) => {
+    el.scrollTop = 0;
+  });
+  try {
+    await confirmButton.scrollIntoViewIfNeeded({ timeout: 5000 });
+  } catch {
+    await resultsArea.evaluate((el) => {
+      el.scrollTop = el.scrollHeight;
+    });
+    await confirmButton.scrollIntoViewIfNeeded({ timeout: 5000 }).catch(() => {});
+  }
+
   let confirmClicked = false;
   try {
-    await confirmButton.scrollIntoViewIfNeeded().catch(() => null);
-    await confirmButton.click({ timeout: 15000, force: true });
+    await confirmButton.click({ timeout: 8000 });
     confirmClicked = true;
   } catch (error) {
     console.warn("[toysrus] confirm button click failed, falling back", error);
   }
 
   if (!confirmClicked) {
-    confirmClicked = await page.evaluate((storeId) => {
-      const button = document.querySelector(
-        `button.js-select-store[value="${storeId}"]`
-      );
-      if (!button) {
-        return false;
-      }
-      button.click();
-      return true;
-    }, store.storeId);
+    const handle = await confirmButton.elementHandle();
+    if (handle) {
+      await page.evaluate((btn) => btn.click(), handle);
+      confirmClicked = true;
+    }
   }
+
+  await Promise.allSettled([
+    page.waitForLoadState("domcontentloaded", { timeout: 30000 }),
+    page.waitForLoadState("networkidle", { timeout: 30000 }).catch(() => {})
+  ]);
 
   await page.waitForFunction(
     (expectedStore) => {
@@ -605,18 +611,19 @@ const scrapeStore = async () => {
     );
   }
   console.log(`[toysrus] My Store confirmed: ${storeName}`);
-  await closeBlockingModals(page);
   await modal
     .waitFor({ state: "hidden", timeout: 20000 })
     .catch(() => null);
-  await closeBlockingModals(page);
-  await Promise.race([
-    page
-      .waitForNavigation({ waitUntil: "domcontentloaded", timeout: 30000 })
-      .catch(() => null),
-    page.waitForTimeout(1500)
+  await Promise.allSettled([
+    page.waitForLoadState("domcontentloaded", { timeout: 30000 }),
+    page.waitForLoadState("networkidle", { timeout: 30000 }).catch(() => {})
   ]);
+  await closeBlockingModals(page);
   await page.reload({ waitUntil: "domcontentloaded" }).catch(() => null);
+  await Promise.allSettled([
+    page.waitForLoadState("domcontentloaded", { timeout: 30000 }),
+    page.waitForLoadState("networkidle", { timeout: 30000 }).catch(() => {})
+  ]);
   await closeBlockingModals(page);
   for (let attempt = 0; attempt < 2; attempt += 1) {
     await handleOneTrust(page);
@@ -629,6 +636,16 @@ const scrapeStore = async () => {
   await handleOneTrust(page);
   await page.waitForTimeout(1000);
   await closeBlockingModals(page);
+  const postalClose = page
+    .locator("button[aria-label='Close'], .modal button.close, button:has-text('×')")
+    .first();
+  if (await postalClose.isVisible().catch(() => false)) {
+    await postalClose.click().catch(() => {});
+  }
+  const productLoc = page
+    .locator("a[href*='/p/'], .product-tile, [data-test*='product']")
+    .first();
+  await productLoc.waitFor({ state: "visible", timeout: 45000 });
   try {
     await page
       .locator("text=/Showing\\s+\\d+\\s+of\\s+\\d+\\s+products/i")
