@@ -1,187 +1,39 @@
 [
-  {
-    "storeId": "2407",
-    "storeName": "Niagara Pen Centre",
-    "searchText": "Niagara Pen Centre"
-  },
-  {
-    "storeId": "2408",
-    "storeName": "Guelph",
-    "searchText": "Guelph"
-  },
-  {
-    "storeId": "2419",
-    "storeName": "Lawrence & Allen",
-    "searchText": "Lawrence & Allen"
-  },
-  {
-    "storeId": "2435",
-    "storeName": "South Barrie",
-    "searchText": "South Barrie"
-  },
-  {
-    "storeId": "2445",
-    "storeName": "Scarborough",
-    "searchText": "Scarborough"
-  },
-  {
-    "storeId": "3502",
-    "storeName": "Brampton",
-    "searchText": "Brampton"
-  },
-  {
-    "storeId": "3503",
-    "storeName": "Hamilton",
-    "searchText": "Hamilton"
-  },
-  {
-    "storeId": "3506",
-    "storeName": "Sherway",
-    "searchText": "Sherway"
-  },
-  {
-    "storeId": "3507",
-    "storeName": "Kitchener",
-    "searchText": "Kitchener"
-  },
-  {
-    "storeId": "3508",
-    "storeName": "Whitby",
-    "searchText": "Whitby"
-  },
-  {
-    "storeId": "3509",
-    "storeName": "Windsor",
-    "searchText": "Windsor"
-  },
-  {
-    "storeId": "3511",
-    "storeName": "Brossard",
-    "searchText": "Brossard"
-  },
-  {
-    "storeId": "3514",
-    "storeName": "Laval",
-    "searchText": "Laval"
-  },
-  {
-    "storeId": "3519",
-    "storeName": "Don Mills",
-    "searchText": "Don Mills"
-  },
-  {
-    "storeId": "3520",
-    "storeName": "St. Catharines",
-    "searchText": "St. Catharines"
-  },
-  {
-    "storeId": "3521",
-    "storeName": "South Edmonton",
-    "searchText": "South Edmonton"
-  },
-  {
-    "storeId": "3522",
-    "storeName": "West Edmonton",
-    "searchText": "West Edmonton"
-  },
-  {
-    "storeId": "3524",
-    "storeName": "Macleod Trail",
-    "searchText": "Macleod Trail"
-  },
-  {
-    "storeId": "3525",
-    "storeName": "Polo Park",
-    "searchText": "Polo Park"
-  },
-  {
-    "storeId": "3526",
-    "storeName": "Kildonan",
-    "searchText": "Kildonan"
-  },
-  {
-    "storeId": "3527",
-    "storeName": "Nepean",
-    "searchText": "Nepean"
-  },
-  {
-    "storeId": "3529",
-    "storeName": "Barrie",
-    "searchText": "Barrie"
-  },
-  {
-    "storeId": "3531",
-    "storeName": "St. Laurent",
-    "searchText": "St. Laurent"
-  },
-  {
-    "storeId": "3534",
-    "storeName": "Langley",
-    "searchText": "Langley"
-  },
-  {
-    "storeId": "3535",
-    "storeName": "North Edmonton",
-    "searchText": "North Edmonton"
-  },
-  {
-    "storeId": "3536",
-    "storeName": "Kingston",
-    "searchText": "Kingston"
-  },
-  {
-    "storeId": "3538",
-    "storeName": "Saint-Bruno",
-    "searchText": "Saint-Bruno"
-  },
-  {
-    "storeId": "3540",
-    "storeName": "Newmarket",
-    "searchText": "Newmarket"
-  },
-  {
-    "storeId": "3543",
-    "storeName": "Lethbridge",
-    "searchText": "Lethbridge"
-  },
-  {
-    "storeId": "3544",
-    "storeName": "Saskatoon",
-    "searchText": "Saskatoon"
-  },
-  {
-    "storeId": "3545",
-    "storeName": "Regina",
-    "searchText": "Regina"
-  },
-  {
-    "storeId": "3555",
-    "storeName": "St. John's",
-    "searchText": "St. John's"
-  },
-  {
-    "storeId": "3557",
-    "storeName": "Red Deer",
-    "searchText": "Red Deer"
-  },
-  {
-    "storeId": "3559",
-    "storeName": "Fredericton",
-    "searchText": "Fredericton"
-  },
-  {
-    "storeId": "3560",
-    "storeName": "Dufferin Mall",
-    "searchText": "Dufferin Mall"
-  },
-  {
-    "storeId": "3561",
-    "storeName": "Sarnia",
-    "searchText": "Sarnia"
-  },
-  {
-    "storeId": "3574",
-    "storeName": "Vaughan Mills",
-    "searchText": "Vaughan Mills"
-  }
+  {"storeId":2407,"name":"Niagara Pen Centre"},
+  {"storeId":2408,"name":"Guelph"},
+  {"storeId":2419,"name":"Lawrence & Allen"},
+  {"storeId":2435,"name":"South Barrie"},
+  {"storeId":2445,"name":"Scarborough"},
+  {"storeId":3502,"name":"Brampton"},
+  {"storeId":3503,"name":"Hamilton"},
+  {"storeId":3506,"name":"Sherway"},
+  {"storeId":3507,"name":"Kitchener"},
+  {"storeId":3508,"name":"Whitby"},
+  {"storeId":3509,"name":"Windsor"},
+  {"storeId":3511,"name":"Brossard"},
+  {"storeId":3514,"name":"Laval"},
+  {"storeId":3519,"name":"Don Mills"},
+  {"storeId":3520,"name":"St. Catharines"},
+  {"storeId":3521,"name":"South Edmonton"},
+  {"storeId":3522,"name":"West Edmonton"},
+  {"storeId":3524,"name":"Macleod Trail"},
+  {"storeId":3525,"name":"Polo Park"},
+  {"storeId":3526,"name":"Kildonan"},
+  {"storeId":3527,"name":"Nepean"},
+  {"storeId":3529,"name":"Barrie"},
+  {"storeId":3531,"name":"St. Laurent"},
+  {"storeId":3534,"name":"Langley"},
+  {"storeId":3535,"name":"North Edmonton"},
+  {"storeId":3536,"name":"Kingston"},
+  {"storeId":3538,"name":"Saint-Bruno"},
+  {"storeId":3540,"name":"Newmarket"},
+  {"storeId":3543,"name":"Lethbridge"},
+  {"storeId":3544,"name":"Saskatoon"},
+  {"storeId":3545,"name":"Regina"},
+  {"storeId":3555,"name":"St. John's"},
+  {"storeId":3557,"name":"Red Deer"},
+  {"storeId":3559,"name":"Fredericton"},
+  {"storeId":3560,"name":"Dufferin Mall"},
+  {"storeId":3561,"name":"Sarnia"},
+  {"storeId":3574,"name":"Vaughan Mills"}
 ]

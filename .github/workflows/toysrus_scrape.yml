@@ -8,13 +8,43 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: toysrus-data
+  cancel-in-progress: false
+
 jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.build-matrix.outputs.matrix }}
+    steps:
+      - name: Checkout scraper repo
+        uses: actions/checkout@v4
+
+      - name: Ensure jq is installed
+        run: |
+          if ! command -v jq >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y jq
+          fi
+
+      - name: Build store matrix
+        id: build-matrix
+        run: |
+          store_count=$(jq 'length' public/toysrus/stores.json)
+          echo "Loaded ${store_count} stores"
+          matrix=$(jq -c '{store: [.[] | {storeId: (.storeId|tostring), name: (.name // .storeName // .searchText)}]}' public/toysrus/stores.json)
+          echo "matrix=${matrix}" >> "$GITHUB_OUTPUT"
+
+      - name: Debug store count
+        run: jq 'length' public/toysrus/stores.json
+
   scrape:
     runs-on: ubuntu-latest
+    needs: prepare
     strategy:
       max-parallel: 4
-      matrix:
-        store-id: [2407, 2408, 2419, 3502]
+      matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
     steps:
       - name: Checkout scraper repo
         uses: actions/checkout@v4
@@ -25,17 +55,46 @@ jobs:
           node-version: 20
 
       - name: Install dependencies
-        # TODO: Generate package-lock.json for reproducible installs.
-        run: npm install
+        run: npm ci
 
       - name: Install Playwright Chromium
         run: npx playwright install chromium
 
       - name: Run scraper
-        run: node scripts/scrape_toysrus_store.mjs --store-id ${{ matrix.store-id }}
+        run: node scripts/scrape_toysrus_store.mjs --store-id ${{ matrix.store.storeId }}
+
+      - name: Upload store artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: toysrus-${{ matrix.store.storeId }}
+          path: data/toysrus/${{ matrix.store.storeId }}
+          if-no-files-found: error
+
+      - name: Upload debug artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: toysrus-debug-${{ matrix.store.storeId }}
+          path: outputs/debug/**
+          if-no-files-found: warn
+
+  merge_and_push:
+    runs-on: ubuntu-latest
+    needs: scrape
+    steps:
+      - name: Checkout scraper repo
+        uses: actions/checkout@v4
+
+      - name: Download store artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: toysrus-[0-9]*
+          path: .
+          merge-multiple: true
 
       - name: Commit and push data
         run: |
+          set -e
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add data/toysrus
@@ -44,12 +103,14 @@ jobs:
             exit 0
           fi
           git commit -m "ToysRUs: update My Store data"
-          git push
-
-      - name: Upload debug artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: toysrus-debug-${{ matrix.store-id }}
-          path: outputs/debug/**
-          if-no-files-found: warn
+          for attempt in 1 2 3; do
+            git fetch origin main
+            if git pull --rebase origin main; then
+              if git push origin main; then
+                exit 0
+              fi
+            fi
+            sleep $((attempt * 5))
+          done
+          echo "Failed to push after retries."
+          exit 1

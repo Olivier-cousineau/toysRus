@@ -11,6 +11,9 @@ const randomDelay = (minMs = 700, maxMs = 1200) =>
 const randomShortDelay = (minMs = 250, maxMs = 400) =>
   Math.floor(Math.random() * (maxMs - minMs + 1)) + minMs;
 
+const randomScrollDelay = (minMs = 300, maxMs = 800) =>
+  Math.floor(Math.random() * (maxMs - minMs + 1)) + minMs;
+
 const normalizeUrl = (value) => {
   try {
     const url = new URL(value, seedUrl);
@@ -38,6 +41,13 @@ const handleOneTrust = async (page) => {
     "button:has-text('Accepter')",
     "button#onetrust-accept-btn-handler"
   ];
+  const rejectSelectors = [
+    "button:has-text('Reject All')",
+    "button:has-text('Reject all')",
+    "button:has-text('Tout refuser')",
+    "button:has-text('Refuser tout')",
+    "button#onetrust-reject-all-handler"
+  ];
   const closeSelectors = [
     "button[aria-label*='close' i]",
     "button:has-text('Close')",
@@ -58,6 +68,15 @@ const handleOneTrust = async (page) => {
     if (await tryClick(selector)) {
       handled = true;
       break;
+    }
+  }
+
+  if (!handled) {
+    for (const selector of rejectSelectors) {
+      if (await tryClick(selector)) {
+        handled = true;
+        break;
+      }
     }
   }
 
@@ -93,6 +112,27 @@ const handleOneTrust = async (page) => {
       }
     }
   }
+
+  if (!handled) {
+    for (const selector of rejectSelectors) {
+      if (await tryClick(selector)) {
+        handled = true;
+        break;
+      }
+    }
+  }
+
+  await page.evaluate(() => {
+    const selectors = [
+      "#onetrust-consent-sdk",
+      ".onetrust-pc-dark-filter",
+      ".ot-fade-in",
+      ".ot-sdk-container"
+    ];
+    selectors.forEach((selector) => {
+      document.querySelectorAll(selector).forEach((element) => element.remove());
+    });
+  });
 
   console.log(`[onetrust] handled=${handled}`);
 };
@@ -217,8 +257,9 @@ const readStores = async () => {
 
 const findStore = (stores, storeId) => {
   if (!storeId) return null;
+  const matchId = String(storeId).toLowerCase();
   return stores.find(
-    (store) => store.storeId.toLowerCase() === storeId.toLowerCase()
+    (store) => String(store.storeId).toLowerCase() === matchId
   );
 };
 
@@ -246,7 +287,13 @@ const scrapeStore = async () => {
     throw new Error(`Store not found for storeId=${storeId ?? ""}`);
   }
 
-  console.log(`[toysrus] store=${store.storeName} storeId=${store.storeId}`);
+  const storeName = store.name || store.storeName || "";
+  const storeSearchName = store.searchText || storeName;
+  if (!storeName) {
+    throw new Error(`Store name missing for storeId=${store.storeId}`);
+  }
+
+  console.log(`[toysrus] store=${storeName} storeId=${store.storeId}`);
 
   const apiProducts = [];
 
@@ -405,7 +452,7 @@ const scrapeStore = async () => {
   }
   await searchInput.click({ timeout: 15000 });
   await searchInput.fill("");
-  await searchInput.type(store.storeName, { delay: 50 });
+  await searchInput.type(storeSearchName, { delay: 50 });
   await page.waitForTimeout(randomDelay());
 
   const escapeRegExp = (value) =>
@@ -419,7 +466,7 @@ const scrapeStore = async () => {
   const isStrongStoreMatch = (value) => {
     if (!value) return false;
     const normalizedValue = normalizeStoreText(value);
-    const normalizedStore = normalizeStoreText(store.storeName);
+    const normalizedStore = normalizeStoreText(storeName);
     if (!normalizedValue || !normalizedStore) return false;
     if (normalizedValue === normalizedStore) return true;
     if (normalizedValue.includes(normalizedStore)) return true;
@@ -436,7 +483,7 @@ const scrapeStore = async () => {
   );
   await findStoresButton.first().click({ timeout: 15000 });
 
-  const storeNameRegex = new RegExp(escapeRegExp(store.storeName), "i");
+  const storeNameRegex = new RegExp(escapeRegExp(storeName), "i");
   const storeResultCandidates = modal.locator(
     "li:has(button), li:has(a), div:has(button), div:has(a)"
   );
@@ -449,14 +496,14 @@ const scrapeStore = async () => {
     await storeResultMatches.first().waitFor({ timeout: 20000 });
   } catch {
     await page.screenshot({
-      path: path.join(debugDir, `${store.storeName}_modal.png`),
+      path: path.join(debugDir, `${store.storeId}_modal.png`),
       fullPage: true
     });
     await fs.writeFile(
-      path.join(debugDir, `${store.storeName}_modal.html`),
+      path.join(debugDir, `${store.storeId}_modal.html`),
       await page.content()
     );
-    throw new Error(`No store match found for ${store.storeName}`);
+    throw new Error(`No store match found for ${storeName}`);
   }
 
   const matchCount = await storeResultMatches.count();
@@ -476,14 +523,14 @@ const scrapeStore = async () => {
 
   if (!chosenStore) {
     await page.screenshot({
-      path: path.join(debugDir, `${store.storeName}_modal.png`),
+      path: path.join(debugDir, `${store.storeId}_modal.png`),
       fullPage: true
     });
     await fs.writeFile(
-      path.join(debugDir, `${store.storeName}_modal.html`),
+      path.join(debugDir, `${store.storeId}_modal.html`),
       await page.content()
     );
-    throw new Error(`No store match found for ${store.storeName}`);
+    throw new Error(`No store match found for ${storeName}`);
   }
 
   const chosenStoreText = (await chosenStore.innerText().catch(() => ""))
@@ -499,12 +546,9 @@ const scrapeStore = async () => {
     .first();
   let confirmClicked = false;
   try {
-    const confirmVisible = await confirmButton.isVisible().catch(() => false);
-    if (confirmVisible) {
-      await confirmButton.scrollIntoViewIfNeeded();
-      await confirmButton.click({ timeout: 15000, force: true });
-      confirmClicked = true;
-    }
+    await confirmButton.scrollIntoViewIfNeeded().catch(() => null);
+    await confirmButton.click({ timeout: 15000, force: true });
+    confirmClicked = true;
   } catch (error) {
     console.warn("[toysrus] confirm button click failed, falling back", error);
   }
@@ -522,6 +566,22 @@ const scrapeStore = async () => {
     }, store.storeId);
   }
 
+  await page.waitForFunction(
+    (expectedStore) => {
+      const normalizeText = (value) =>
+        (value || "")
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, " ")
+          .replace(/\s+/g, " ")
+          .trim();
+      const header = document.querySelector("header");
+      const text = normalizeText(header ? header.innerText : "");
+      return text.includes("my store") && text.includes(normalizeText(expectedStore));
+    },
+    storeName,
+    { timeout: 30000 }
+  );
+
   const headerText = (await page
     .locator("header")
     .first()
@@ -533,18 +593,18 @@ const scrapeStore = async () => {
 
   if (!headerHasMyStore || !headerHasStoreName) {
     await page.screenshot({
-      path: path.join(debugDir, `${store.storeName}_after_confirm.png`),
+      path: path.join(debugDir, `${store.storeId}_after_confirm.png`),
       fullPage: true
     });
     await fs.writeFile(
-      path.join(debugDir, `${store.storeName}_after_confirm.html`),
+      path.join(debugDir, `${store.storeId}_after_confirm.html`),
       await page.content()
     );
     throw new Error(
-      `My Store mismatch: header="${headerText}" expected store="${store.storeName}"`
+      `My Store mismatch: header="${headerText}" expected store="${storeName}"`
     );
   }
-  console.log(`[toysrus] My Store confirmed: ${store.storeName}`);
+  console.log(`[toysrus] My Store confirmed: ${storeName}`);
   await closeBlockingModals(page);
   await modal
     .waitFor({ state: "hidden", timeout: 20000 })
@@ -564,37 +624,7 @@ const scrapeStore = async () => {
   }
   await closeBlockingModals(page);
 
-  const safeReload = async (retries = 2) => {
-    for (let attempt = 0; attempt <= retries; attempt += 1) {
-      try {
-        await page.reload({ waitUntil: "domcontentloaded" });
-        await closeBlockingModals(page);
-        return;
-      } catch (error) {
-        const errorMessage = String(error);
-        if (errorMessage.includes("ERR_ABORTED") && attempt < retries) {
-          continue;
-        }
-        throw error;
-      }
-    }
-  };
-
-  const clearanceLink = page
-    .locator("a:has-text('CLEARANCE'), a[href*='clearance']")
-    .first();
-  const clearanceVisible = await clearanceLink.isVisible().catch(() => false);
-  if (clearanceVisible) {
-    await clearanceLink.click({ timeout: 15000 });
-    await Promise.race([
-      page
-        .waitForNavigation({ waitUntil: "domcontentloaded", timeout: 30000 })
-        .catch(() => null),
-      page.waitForTimeout(1500)
-    ]);
-  } else {
-    await safeReload();
-  }
+  await page.goto(seedUrl, { waitUntil: "domcontentloaded" });
 
   await handleOneTrust(page);
   await page.waitForTimeout(1000);
@@ -645,6 +675,10 @@ const scrapeStore = async () => {
   };
   let previousCounts = await getProgressCounts();
 
+  const getProductCardCount = async () =>
+    page.locator("a[href*='/p/']").count().catch(() => 0);
+  let previousCardCount = await getProductCardCount();
+
   for (let i = 0; i < maxLoadMoreClicks; i += 1) {
     await closeBlockingModals(page);
     const isVisible = await loadMoreLocator.first().isVisible().catch(() => false);
@@ -653,7 +687,7 @@ const scrapeStore = async () => {
     }
 
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-    await page.waitForTimeout(randomDelay(800, 1200));
+    await page.waitForTimeout(randomScrollDelay());
 
     await handleOneTrust(page);
     await loadMoreLocator.first().click({ timeout: 15000 }).catch(() => null);
@@ -664,12 +698,18 @@ const scrapeStore = async () => {
     const progressed =
       currentCounts.wasNowCount > previousCounts.wasNowCount ||
       currentCounts.addToCartCount > previousCounts.addToCartCount;
+    const currentCardCount = await getProductCardCount();
     if (progressed) {
       noProgress = 0;
       previousCounts = currentCounts;
+      previousCardCount = currentCardCount;
     } else {
       noProgress += 1;
-      if (noProgress >= 2) {
+      const cardProgress = currentCardCount > previousCardCount;
+      if (cardProgress) {
+        noProgress = 0;
+        previousCardCount = currentCardCount;
+      } else if (noProgress >= 2) {
         break;
       }
     }
@@ -682,7 +722,8 @@ const scrapeStore = async () => {
 
   await closeBlockingModals(page);
 
-  const { rawProducts } = await page.evaluate(() => {
+  const collectProducts = () =>
+    page.evaluate(() => {
     const wasNowRegex = /Was:\s*\$([0-9.,]+)\s*to\s*Now:\s*\$([0-9.,]+)/i;
     const statusPatterns = [
       /in stock/i,
@@ -792,7 +833,20 @@ const scrapeStore = async () => {
     return { rawProducts };
   });
 
-  const allRawProducts = [...rawProducts, ...apiProducts];
+  const { rawProducts } = await collectProducts();
+  let extraProducts = [];
+
+  const missingImages = rawProducts.filter((product) => !product.image).length;
+  if (missingImages > 0) {
+    for (let i = 0; i < 2; i += 1) {
+      await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+      await page.waitForTimeout(randomScrollDelay());
+    }
+    const retry = await collectProducts();
+    extraProducts = retry.rawProducts;
+  }
+
+  const allRawProducts = [...rawProducts, ...extraProducts, ...apiProducts];
 
   const products = [];
   const seen = new Set();
@@ -851,15 +905,15 @@ const scrapeStore = async () => {
 
   await browser.close();
 
-  const outputDir = path.join("data", "toysrus", store.storeId);
+  const outputDir = path.join("data", "toysrus", String(store.storeId));
   await ensureDir(outputDir);
   await fs.writeFile(
     path.join(outputDir, "data.json"),
     JSON.stringify(
       {
         seedUrl,
-        storeId: store.storeId,
-        storeName: store.storeName,
+        storeId: String(store.storeId),
+        storeName,
         scrapedAt,
         count: products.length,
         products
@@ -885,8 +939,8 @@ const scrapeStore = async () => {
     ];
     const rows = products.map((product) =>
       [
-        store.storeId,
-        store.storeName,
+        String(store.storeId),
+        storeName,
         product.title || "",
         product.url || "",
         product.price ?? "",
