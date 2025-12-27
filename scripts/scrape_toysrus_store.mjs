@@ -30,111 +30,35 @@ const normalizeUrl = (value) => {
 };
 
 const handleOneTrust = async (page) => {
-  let handled = false;
-  const acceptSelectors = [
-    "button:has-text('Accept All')",
-    "button:has-text('Accept Cookies')",
-    "button:has-text('I Accept')",
-    "button:has-text('Accept')",
-    "button:has-text('Tout accepter')",
-    "button:has-text('Accepter tout')",
-    "button:has-text('Accepter')",
-    "button#onetrust-accept-btn-handler"
-  ];
-  const rejectSelectors = [
-    "button:has-text('Reject All')",
-    "button:has-text('Reject all')",
-    "button:has-text('Tout refuser')",
-    "button:has-text('Refuser tout')",
-    "button#onetrust-reject-all-handler"
-  ];
-  const closeSelectors = [
-    "button[aria-label*='close' i]",
-    "button:has-text('Close')",
-    "button:has-text('Fermer')",
-    ".onetrust-close-btn-handler",
-    "#onetrust-close-btn-container button"
-  ];
-
-  const tryClick = async (selector) => {
-    const button = page.locator(selector).first();
-    const visible = await button.isVisible().catch(() => false);
-    if (!visible) return false;
-    await button.click({ timeout: 3000 }).catch(() => {});
-    return true;
-  };
-
-  for (const selector of acceptSelectors) {
-    if (await tryClick(selector)) {
-      handled = true;
-      break;
-    }
-  }
-
-  if (!handled) {
-    for (const selector of rejectSelectors) {
-      if (await tryClick(selector)) {
-        handled = true;
-        break;
-      }
-    }
-  }
-
-  if (!handled) {
-    for (const selector of closeSelectors) {
-      if (await tryClick(selector)) {
-        handled = true;
-        break;
-      }
-    }
-  }
-
   try {
-    await page.waitForSelector(".onetrust-pc-dark-filter, #onetrust-consent-sdk", {
-      state: "hidden",
-      timeout: 5000
+    const accept = page
+      .locator(
+        "#onetrust-accept-btn-handler, button:has-text('Accept All'), button:has-text('Tout accepter')"
+      )
+      .first();
+
+    if (await accept.isVisible().catch(() => false)) {
+      await accept.click({ timeout: 5000 }).catch(() => {});
+      console.log("[onetrust] handled=true");
+      return true;
+    }
+
+    await page.evaluate(() => {
+      const dark = document.querySelector(
+        ".onetrust-pc-dark-filter, #onetrust-consent-sdk"
+      );
+      if (dark) dark.remove();
+      document
+        .querySelectorAll(".ot-sdk-container, .ot-overlay, .ot-fade-in")
+        .forEach((el) => el.remove());
     });
+
+    console.log("[onetrust] handled=true");
+    return true;
   } catch {
-    // ignore timeout
+    console.log("[onetrust] handled=false");
+    return false;
   }
-
-  const overlayVisible = await page
-    .locator(".onetrust-pc-dark-filter, #onetrust-consent-sdk")
-    .first()
-    .isVisible()
-    .catch(() => false);
-
-  if (overlayVisible) {
-    for (const selector of acceptSelectors) {
-      if (await tryClick(selector)) {
-        handled = true;
-        break;
-      }
-    }
-  }
-
-  if (!handled) {
-    for (const selector of rejectSelectors) {
-      if (await tryClick(selector)) {
-        handled = true;
-        break;
-      }
-    }
-  }
-
-  await page.evaluate(() => {
-    const selectors = [
-      "#onetrust-consent-sdk",
-      ".onetrust-pc-dark-filter",
-      ".ot-fade-in",
-      ".ot-sdk-container"
-    ];
-    selectors.forEach((selector) => {
-      document.querySelectorAll(selector).forEach((element) => element.remove());
-    });
-  });
-
-  console.log(`[onetrust] handled=${handled}`);
 };
 
 const closeBlockingModals = async (page) => {
@@ -390,79 +314,29 @@ const scrapeStore = async () => {
   await handleOneTrust(page);
   await page.waitForTimeout(1000);
 
-  const trigger = page.locator(
-    "button[aria-label='Select Your Store'], .js-btn-get-store"
-  );
-  await handleOneTrust(page);
-  await closeBlockingModals(page);
-  try {
-    await trigger.first().click({ timeout: 20000 });
-  } catch {
-    await handleOneTrust(page);
-    await trigger.first().click({ timeout: 20000 });
-  }
-  await page.waitForTimeout(randomDelay());
-  await handleOneTrust(page);
+  const storeBtn = page
+    .locator(
+      "button.js-btn-get-store, button[aria-label*='Select Your Store' i]"
+    )
+    .first();
 
-  const modalCandidates = [
-    page
-      .locator("button.js-btn-get-store")
-      .first()
-      .locator("xpath=ancestor::*[self::header or self::div][1]"),
-    page
-      .locator("text=SELECT YOUR STORE")
-      .first()
-      .locator(
-        "xpath=ancestor::*[self::div][@role='dialog' or contains(@class,'modal')][1]"
-      )
-  ];
-  let modal = null;
-  for (const candidate of modalCandidates) {
-    if ((await candidate.count().catch(() => 0)) > 0) {
-      modal = candidate;
-      break;
-    }
-  }
-  if (!modal) {
-    modal = page.locator("[role='dialog'], .modal, #store, .b-store-modal").first();
-  }
+  await handleOneTrust(page);
+  await storeBtn.waitFor({ state: "visible", timeout: 30000 });
+  await storeBtn.click({ timeout: 30000 });
+
+  const modal = page
+    .locator(
+      "[role='dialog'], .modal, #store, .b-store-modal, .b-locator_modal, .b-locator"
+    )
+    .first();
   await modal.waitFor({ state: "visible", timeout: 30000 });
 
-  const inputSelectors = [
-    "input[type='search']",
-    "input[type='text']",
-    "input[name*='location' i]",
-    "input[id*='location' i]",
-    "input[placeholder*='Location' i]",
-    "input[aria-label*='Location' i]",
-    "input"
-  ];
-  let searchInput = null;
-  for (const selector of inputSelectors) {
-    const candidates = modal.locator(selector);
-    const count = await candidates.count().catch(() => 0);
-    for (let i = 0; i < count; i += 1) {
-      const candidate = candidates.nth(i);
-      const visible = await candidate.isVisible().catch(() => false);
-      const enabled = await candidate.isEnabled().catch(() => false);
-      if (visible && enabled) {
-        searchInput = candidate;
-        break;
-      }
-    }
-    if (searchInput) break;
-  }
-  if (!searchInput) {
-    await page.screenshot({
-      path: path.join(debugDir, `${store.storeId}_modal.png`),
-      fullPage: true
-    });
-    await fs.writeFile(
-      path.join(debugDir, `${store.storeId}_modal.html`),
-      await page.content()
-    );
-    throw new Error("Store locator input not found");
-  }
+  const searchInput = modal
+    .locator(
+      "input[placeholder*='Enter a Location' i], input[aria-label*='Enter a Location' i], input[type='search']"
+    )
+    .first();
+  await searchInput.waitFor({ state: "visible", timeout: 30000 });
   await searchInput.click({ timeout: 15000 });
   await searchInput.fill("");
   await searchInput.type(storeSearchName, { delay: 50 });
@@ -498,7 +372,9 @@ const scrapeStore = async () => {
 
   const storeNameRegex = new RegExp(escapeRegExp(storeName), "i");
   const resultsArea = modal
-    .locator(".store-results, [data-testid*='store-results'], ul, .results")
+    .locator(
+      ".store-results, [data-testid*='store-results'], .b-locator_results, ul, .results"
+    )
     .first();
   await resultsArea.waitFor({ state: "visible", timeout: 30000 });
 
