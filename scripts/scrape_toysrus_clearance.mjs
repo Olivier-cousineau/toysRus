@@ -24,70 +24,35 @@ const normalizeUrl = (value) => {
 };
 
 const handleOneTrust = async (page) => {
-  let handled = false;
-  const acceptSelectors = [
-    "button:has-text('Accept All')",
-    "button:has-text('Accept Cookies')",
-    "button:has-text('I Accept')",
-    "button:has-text('Tout accepter')",
-    "button:has-text('Accepter tout')",
-    "button#onetrust-accept-btn-handler"
-  ];
-  const closeSelectors = [
-    "button[aria-label*='close' i]",
-    "button:has-text('Close')",
-    "button:has-text('Fermer')",
-    ".onetrust-close-btn-handler",
-    "#onetrust-close-btn-container button"
-  ];
-
-  const tryClick = async (selector) => {
-    const button = page.locator(selector).first();
-    const visible = await button.isVisible().catch(() => false);
-    if (!visible) return false;
-    await button.click({ timeout: 3000 }).catch(() => {});
-    return true;
-  };
-
-  for (const selector of acceptSelectors) {
-    if (await tryClick(selector)) {
-      handled = true;
-      break;
-    }
-  }
-
-  if (!handled) {
-    for (const selector of closeSelectors) {
-      if (await tryClick(selector)) {
-        handled = true;
-        break;
-      }
-    }
-  }
-
   try {
-    await page.waitForSelector(".onetrust-pc-dark-filter, #onetrust-consent-sdk", {
-      state: "hidden",
-      timeout: 5000
-    });
-  } catch {
-    // ignore timeout
-  }
+    const accept = page
+      .locator(
+        "#onetrust-accept-btn-handler, button:has-text('Accept All'), button:has-text('Tout accepter')"
+      )
+      .first();
 
-  const overlayVisible = await page
-    .locator(".onetrust-pc-dark-filter, #onetrust-consent-sdk")
-    .first()
-    .isVisible()
-    .catch(() => false);
+    if (await accept.isVisible().catch(() => false)) {
+      await accept.click({ timeout: 5000 }).catch(() => {});
+      console.log("[onetrust] handled=true");
+      return true;
+    }
 
-  if (overlayVisible) {
     await page.evaluate(() => {
-      document.querySelector("#onetrust-accept-btn-handler")?.click();
+      const dark = document.querySelector(
+        ".onetrust-pc-dark-filter, #onetrust-consent-sdk"
+      );
+      if (dark) dark.remove();
+      document
+        .querySelectorAll(".ot-sdk-container, .ot-overlay, .ot-fade-in")
+        .forEach((el) => el.remove());
     });
-    handled = true;
-  }
 
-  console.log(`[onetrust] handled=${handled}`);
+    console.log("[onetrust] handled=true");
+    return true;
+  } catch {
+    console.log("[onetrust] handled=false");
+    return false;
+  }
 };
 
 const isLikelyProductUrl = (value) =>
