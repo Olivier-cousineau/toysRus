@@ -186,6 +186,7 @@ const closeActiveBackdrops = async (page) => {
     await page.evaluate(() => {
       [
         ".js-dialog-backdrop.is-active",
+        ".js-dialog-backdrop.is-top-dialog",
         ".b-pdp-instore_panel.js-dialog-backdrop"
       ].forEach((selector) => {
         document.querySelectorAll(selector).forEach((element) => element.remove());
@@ -218,11 +219,11 @@ const ensureDir = async (dir) => {
 };
 
 const dumpDebug = async (page, tag) => {
+  await fs.mkdir("outputs/debug", { recursive: true }).catch(() => {});
   await page
     .screenshot({ path: `outputs/debug/${tag}.png`, fullPage: true })
     .catch(() => {});
   const html = await page.content().catch(() => "");
-  await fs.mkdir("outputs/debug", { recursive: true }).catch(() => {});
   await fs.writeFile(`outputs/debug/${tag}.html`, html).catch(() => {});
 };
 
@@ -374,15 +375,30 @@ const scrapeStore = async () => {
   await handleOneTrust(page);
   await storeBtn.waitFor({ state: "visible", timeout: 30000 });
   await closeActiveBackdrops(page);
+  await storeBtn.scrollIntoViewIfNeeded().catch(() => {});
   try {
     await storeBtn.click({ timeout: 15000 });
   } catch {
     await storeBtn.click({ timeout: 15000, force: true });
   }
+  await page.waitForTimeout(600);
+  await closeActiveBackdrops(page);
 
   const findStoresButton = page
     .locator(
-      "button:has-text('Find Stores'):visible, button:has-text('FIND STORES'):visible, button:has-text('Trouver des magasins'):visible"
+      [
+        "button:has-text('Find Stores'):visible",
+        "button:has-text('FIND STORES'):visible",
+        "button:has-text('Trouver des magasins'):visible",
+        "a:has-text('Find Stores'):visible",
+        "a:has-text('FIND STORES'):visible",
+        "a:has-text('Trouver des magasins'):visible",
+        "[role='button']:has-text('Find Stores'):visible",
+        "[role='button']:has-text('FIND STORES'):visible",
+        "[role='button']:has-text('Trouver des magasins'):visible",
+        "input[type='submit'][value*='Find Stores' i]:visible",
+        "input[type='submit'][value*='Trouver des magasins' i]:visible"
+      ].join(", ")
     )
     .first();
   try {
