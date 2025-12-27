@@ -312,6 +312,15 @@ const scrapeStore = async () => {
 
   await page.goto(seedUrl, { waitUntil: "domcontentloaded" });
   await handleOneTrust(page);
+  const postalModal = page.locator("#js-modal-postal");
+  if (await postalModal.isVisible().catch(() => false)) {
+    await page.keyboard.press("Escape").catch(() => {});
+    await postalModal
+      .locator('button[aria-label="Close"], .close, button:has-text("×")')
+      .first()
+      .click()
+      .catch(() => {});
+  }
   await page.waitForTimeout(1000);
 
   const storeBtn = page
@@ -324,19 +333,15 @@ const scrapeStore = async () => {
   await storeBtn.waitFor({ state: "visible", timeout: 30000 });
   await storeBtn.click({ timeout: 30000 });
 
-  const modal = page
+  const searchInput = page
     .locator(
-      "[role='dialog'], .modal, #store, .b-store-modal, .b-locator_modal, .b-locator"
-    )
-    .first();
-  await modal.waitFor({ state: "visible", timeout: 30000 });
-
-  const searchInput = modal
-    .locator(
-      "input[placeholder*='Enter a Location' i], input[aria-label*='Enter a Location' i], input[type='search']"
+      "input[placeholder*='Enter a Location' i]:visible, input[aria-label*='Enter a Location' i]:visible, input[type='search']:visible"
     )
     .first();
   await searchInput.waitFor({ state: "visible", timeout: 30000 });
+  const modal = searchInput.locator(
+    "xpath=ancestor::*[self::div or self::section or self::form][1]"
+  );
   await searchInput.click({ timeout: 15000 });
   await searchInput.fill("");
   await searchInput.type(storeSearchName, { delay: 50 });
