@@ -1,0 +1,70 @@
+name: ToysRUs My Store Sharded Scrape
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "30 5 * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: toysrus-my-store
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    strategy:
+      max-parallel: 4
+      matrix:
+        shard: [1, 2, 3, 4]
+    env:
+      SHARD_INDEX: ${{ matrix.shard }}
+      TOTAL_SHARDS: 4
+    steps:
+      - name: Checkout scraper repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dependencies
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install
+          fi
+
+      - name: Install Playwright Chromium
+        run: npx playwright install chromium
+
+      - name: Run shard scraper
+        run: node scripts/run_stores_shard.mjs
+
+      - name: Commit and push data
+        run: |
+          set -e
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin main
+          git add data/toysrus
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git commit -m "ToysRUs: update My Store data (shard ${{ matrix.shard }}/4)"
+          git push origin main
+
+      - name: Upload debug artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: toysrus-debug-shard-${{ matrix.shard }}
+          path: |
+            outputs/debug/**
+            data/toysrus/**
+          if-no-files-found: warn
