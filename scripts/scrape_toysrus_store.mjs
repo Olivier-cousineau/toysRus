@@ -3,7 +3,9 @@ import path from "path";
 import { chromium } from "playwright";
 
 const seedUrl = "https://www.toysrus.ca/en/toysrus/CLEARANCE";
+const storeLocatorUrl = "https://www.toysrus.ca/en/storelocator";
 const maxLoadMoreClicks = 80;
+const maxStoreLoadMoreClicks = 40;
 
 const randomDelay = (minMs = 700, maxMs = 1200) =>
   Math.floor(Math.random() * (maxMs - minMs + 1)) + minMs;
@@ -265,7 +267,6 @@ const scrapeStore = async () => {
   }
 
   const storeName = store.name || store.storeName || "";
-  const storeSearchName = store.searchText || storeName;
   if (!storeName) {
     throw new Error(`Store name missing for storeId=${store.storeId}`);
   }
@@ -352,186 +353,107 @@ const scrapeStore = async () => {
   const debugDir = path.join("outputs", "debug");
   await ensureDir(debugDir);
 
-  await page.goto(seedUrl, { waitUntil: "domcontentloaded" });
+  await page.goto(storeLocatorUrl, { waitUntil: "domcontentloaded" });
   await handleOneTrust(page);
   await closeActiveBackdrops(page);
-  const postalModal = page.locator("#js-modal-postal");
-  if (await postalModal.isVisible().catch(() => false)) {
-    await page.keyboard.press("Escape").catch(() => {});
-    await postalModal
-      .locator('button[aria-label="Close"], .close, button:has-text("×")')
-      .first()
-      .click()
-      .catch(() => {});
-  }
-  await page.waitForTimeout(1000);
+  await closeBlockingModals(page);
 
-  const storeBtn = page
-    .locator(
-      "button.js-btn-get-store, button[aria-label*='Select Your Store' i]"
-    )
+  const storeSelectButton = page
+    .locator(`button.js-select-store[value="${store.storeId}"]`)
     .first();
-
-  await handleOneTrust(page);
-  await storeBtn.waitFor({ state: "visible", timeout: 30000 });
-  await closeActiveBackdrops(page);
-  await storeBtn.scrollIntoViewIfNeeded().catch(() => {});
-  try {
-    await storeBtn.click({ timeout: 15000 });
-  } catch {
-    await storeBtn.click({ timeout: 15000, force: true });
-  }
-  await page.waitForTimeout(600);
-  await closeActiveBackdrops(page);
-
-  const findStoresButton = page
-    .locator(
-      [
-        "button:has-text('Find Stores'):visible",
-        "button:has-text('FIND STORES'):visible",
-        "button:has-text('Trouver des magasins'):visible",
-        "a:has-text('Find Stores'):visible",
-        "a:has-text('FIND STORES'):visible",
-        "a:has-text('Trouver des magasins'):visible",
-        "[role='button']:has-text('Find Stores'):visible",
-        "[role='button']:has-text('FIND STORES'):visible",
-        "[role='button']:has-text('Trouver des magasins'):visible",
-        "input[type='submit'][value*='Find Stores' i]:visible",
-        "input[type='submit'][value*='Trouver des magasins' i]:visible"
-      ].join(", ")
-    )
-    .first();
-  try {
-    await findStoresButton.waitFor({ state: "visible", timeout: 30000 });
-  } catch (error) {
-    if (error?.name === "TimeoutError") {
-      await dumpDebug(page, `storelocator_timeout_${store.storeId}`);
-    }
-    throw error;
-  }
-
-  const storePanel = findStoresButton.locator(
-    "xpath=ancestor::*[self::div or self::section or self::form][1]"
+  const loadMoreLocator = page.locator(
+    [
+      "button:has-text('Load More')",
+      "button:has-text('LOAD MORE')",
+      "a:has-text('Load More')",
+      "a:has-text('LOAD MORE')",
+      "[role='button']:has-text('Load More')",
+      "[role='button']:has-text('LOAD MORE')"
+    ].join(", ")
   );
-  const storeLocationInput = storePanel
-    .locator("input:not(#header-search-input):visible")
-    .first();
-  try {
-    await storeLocationInput.waitFor({ state: "visible", timeout: 30000 });
-  } catch (error) {
-    if (error?.name === "TimeoutError") {
-      await dumpDebug(page, `storelocator_timeout_${store.storeId}`);
+
+  let storeFound = false;
+  for (let i = 0; i < maxStoreLoadMoreClicks; i += 1) {
+    await handleOneTrust(page);
+    await closeBlockingModals(page);
+    const visible = await storeSelectButton.isVisible().catch(() => false);
+    if (visible) {
+      storeFound = true;
+      break;
     }
-    throw error;
+    const loadMoreVisible = await loadMoreLocator
+      .first()
+      .isVisible()
+      .catch(() => false);
+    if (!loadMoreVisible) {
+      break;
+    }
+    await loadMoreLocator.first().scrollIntoViewIfNeeded().catch(() => {});
+    await loadMoreLocator.first().click({ timeout: 15000 }).catch(() => null);
+    await page.waitForTimeout(randomDelay());
   }
-  await storeLocationInput.click({ timeout: 15000 });
-  await storeLocationInput.fill("");
-  await storeLocationInput.type(storeSearchName, { delay: 50 });
+
+  if (!storeFound) {
+    await dumpDebug(page, `storelocator_missing_${store.storeId}`);
+    throw new Error(`Store not found in locator for storeId=${store.storeId}`);
+  }
+
+  try {
+    await storeSelectButton.click({ timeout: 15000 });
+  } catch (error) {
+    console.warn("[toysrus] select store click failed, retrying", error);
+    await storeSelectButton.click({ timeout: 15000, force: true });
+  }
+
   await page.waitForTimeout(randomDelay());
+  await page.goto(seedUrl, { waitUntil: "domcontentloaded" });
+
+  await handleOneTrust(page);
+  await page.waitForTimeout(1000);
+  await closeBlockingModals(page);
+  const postalClose = page
+    .locator("button[aria-label='Close'], .modal button.close, button:has-text('×')")
+    .first();
+  if (await postalClose.isVisible().catch(() => false)) {
+    await postalClose.click().catch(() => {});
+  }
+  const productLoc = page
+    .locator("a[href*='/p/'], .product-tile, [data-test*='product']")
+    .first();
+  await productLoc.waitFor({ state: "visible", timeout: 45000 });
+  try {
+    await page
+      .locator("text=/Showing\\s+\\d+\\s+of\\s+\\d+\\s+products/i")
+      .first()
+      .waitFor({ timeout: 30000 });
+  } catch {
+    await page.locator("text=/\\bResults\\b/i").first().waitFor({ timeout: 30000 });
+  }
 
   const escapeRegExp = (value) =>
     value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const normalizeStoreText = (value) =>
-    value
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
-  const isStrongStoreMatch = (value) => {
-    if (!value) return false;
-    const normalizedValue = normalizeStoreText(value);
-    const normalizedStore = normalizeStoreText(storeName);
-    if (!normalizedValue || !normalizedStore) return false;
-    if (normalizedValue === normalizedStore) return true;
-    if (normalizedValue.includes(normalizedStore)) return true;
-    if (
-      normalizedStore.includes(normalizedValue) &&
-      normalizedValue.length >= Math.floor(normalizedStore.length * 0.8)
-    ) {
-      return true;
-    }
-    return false;
-  };
-  await findStoresButton.first().click({ timeout: 15000 });
-
   const storeNameRegex = new RegExp(escapeRegExp(storeName), "i");
-  const resultsArea = storePanel
+  const pageUrl = page.url();
+  const pageTitle = await page.title().catch(() => "");
+  const countShowing = await page
+    .locator("text=/Showing\\s+\\d+\\s+of\\s+\\d+\\s+products/i")
+    .count()
+    .catch(() => 0);
+  const countWasNow = await page.locator("text=/Was:\\s*\\$/i").count().catch(() => 0);
+  const countAddToCart = await page
+    .locator("text=/Add to Cart/i")
+    .count()
+    .catch(() => 0);
+  const countLoadMoreVisible = await page
     .locator(
-      ".store-results, [data-testid*='store-results'], .b-locator_results, ul, .results"
+      "button:has-text('Load More'):visible, button:has-text('LOAD MORE'):visible, a:has-text('Load More'):visible, a:has-text('LOAD MORE'):visible, [role='button']:has-text('Load More'):visible, [role='button']:has-text('LOAD MORE'):visible"
     )
-    .first();
-  await resultsArea.waitFor({ state: "visible", timeout: 30000 });
-
-  const storeRow = resultsArea
-    .locator(":scope *")
-    .filter({ hasText: new RegExp(storeName, "i") })
-    .first();
-
-  try {
-    await storeRow.waitFor({ state: "visible", timeout: 30000 });
-  } catch {
-    await page.screenshot({
-      path: path.join(debugDir, `${store.storeId}_modal.png`),
-      fullPage: true
-    });
-    await fs.writeFile(
-      path.join(debugDir, `${store.storeId}_modal.html`),
-      await page.content()
-    );
-    throw new Error(`No store match found for ${storeName}`);
-  }
-
-  const chosenStoreText = (await storeRow.innerText().catch(() => ""))
-    .replace(/\s+/g, " ")
-    .trim();
-  console.log(`[toysrus] chosenStoreText=${chosenStoreText}`);
-
-  if (isStrongStoreMatch(chosenStoreText)) {
-    try {
-      await storeRow.click({ timeout: 2000 });
-    } catch {
-      // ignore if row isn't clickable
-    }
-  }
-
-  const confirmButton = storeRow
-    .locator(
-      "button.js-select-store, button:has-text('Confirm as My Store'), button:has-text('Confirmer comme mon magasin')"
-    )
-    .first();
-  await resultsArea.evaluate((el) => {
-    el.scrollTop = 0;
-  });
-  try {
-    await confirmButton.scrollIntoViewIfNeeded({ timeout: 5000 });
-  } catch {
-    await resultsArea.evaluate((el) => {
-      el.scrollTop = el.scrollHeight;
-    });
-    await confirmButton.scrollIntoViewIfNeeded({ timeout: 5000 }).catch(() => {});
-  }
-
-  let confirmClicked = false;
-  try {
-    await confirmButton.click({ timeout: 8000 });
-    confirmClicked = true;
-  } catch (error) {
-    console.warn("[toysrus] confirm button click failed, falling back", error);
-  }
-
-  if (!confirmClicked) {
-    const handle = await confirmButton.elementHandle();
-    if (handle) {
-      await page.evaluate((btn) => btn.click(), handle);
-      confirmClicked = true;
-    }
-  }
-
-  await Promise.allSettled([
-    page.waitForLoadState("domcontentloaded", { timeout: 30000 }),
-    page.waitForLoadState("networkidle", { timeout: 30000 }).catch(() => {})
-  ]);
-  await closeActiveBackdrops(page);
+    .filter({ hasText: /Load More/i })
+    .count()
+    .catch(() => 0);
+  console.log(
+    `[toysrus] post-confirm url=${pageUrl} title="${pageTitle}" showing=${countShowing} wasNow=${countWasNow} addToCart=${countAddToCart} loadMoreVisible=${countLoadMoreVisible}`
+  );
 
   await page.waitForFunction(
     (expectedStore) => {
@@ -572,71 +494,6 @@ const scrapeStore = async () => {
     );
   }
   console.log(`[toysrus] My Store confirmed: ${storeName}`);
-  await modal
-    .waitFor({ state: "hidden", timeout: 20000 })
-    .catch(() => null);
-  await Promise.allSettled([
-    page.waitForLoadState("domcontentloaded", { timeout: 30000 }),
-    page.waitForLoadState("networkidle", { timeout: 30000 }).catch(() => {})
-  ]);
-  await closeBlockingModals(page);
-  await page.reload({ waitUntil: "domcontentloaded" }).catch(() => null);
-  await Promise.allSettled([
-    page.waitForLoadState("domcontentloaded", { timeout: 30000 }),
-    page.waitForLoadState("networkidle", { timeout: 30000 }).catch(() => {})
-  ]);
-  await closeBlockingModals(page);
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    await handleOneTrust(page);
-    await page.waitForTimeout(400);
-  }
-  await closeBlockingModals(page);
-
-  await page.goto(seedUrl, { waitUntil: "domcontentloaded" });
-
-  await handleOneTrust(page);
-  await page.waitForTimeout(1000);
-  await closeBlockingModals(page);
-  const postalClose = page
-    .locator("button[aria-label='Close'], .modal button.close, button:has-text('×')")
-    .first();
-  if (await postalClose.isVisible().catch(() => false)) {
-    await postalClose.click().catch(() => {});
-  }
-  const productLoc = page
-    .locator("a[href*='/p/'], .product-tile, [data-test*='product']")
-    .first();
-  await productLoc.waitFor({ state: "visible", timeout: 45000 });
-  try {
-    await page
-      .locator("text=/Showing\\s+\\d+\\s+of\\s+\\d+\\s+products/i")
-      .first()
-      .waitFor({ timeout: 30000 });
-  } catch {
-    await page.locator("text=/\\bResults\\b/i").first().waitFor({ timeout: 30000 });
-  }
-
-  const pageUrl = page.url();
-  const pageTitle = await page.title().catch(() => "");
-  const countShowing = await page
-    .locator("text=/Showing\\s+\\d+\\s+of\\s+\\d+\\s+products/i")
-    .count()
-    .catch(() => 0);
-  const countWasNow = await page.locator("text=/Was:\\s*\\$/i").count().catch(() => 0);
-  const countAddToCart = await page
-    .locator("text=/Add to Cart/i")
-    .count()
-    .catch(() => 0);
-  const countLoadMoreVisible = await page
-    .locator(
-      "button:has-text('Load More'):visible, button:has-text('LOAD MORE'):visible, a:has-text('Load More'):visible, a:has-text('LOAD MORE'):visible, [role='button']:has-text('Load More'):visible, [role='button']:has-text('LOAD MORE'):visible"
-    )
-    .filter({ hasText: /Load More/i })
-    .count()
-    .catch(() => 0);
-  console.log(
-    `[toysrus] post-confirm url=${pageUrl} title="${pageTitle}" showing=${countShowing} wasNow=${countWasNow} addToCart=${countAddToCart} loadMoreVisible=${countLoadMoreVisible}`
-  );
 
   let loadMoreClicks = 0;
   let noProgress = 0;
