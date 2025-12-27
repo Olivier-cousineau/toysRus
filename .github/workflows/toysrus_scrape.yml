@@ -25,7 +25,8 @@ jobs:
           node-version: 20
 
       - name: Install dependencies
-        run: npm ci
+        # TODO: Generate package-lock.json via npm install and switch back to npm ci.
+        run: npm install
 
       - name: Install Playwright Chromium
         run: npx playwright install chromium
