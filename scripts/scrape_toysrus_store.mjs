@@ -79,6 +79,46 @@ const parseArgs = () => {
 };
 
 const closeOverlays = async (page) => {
+  // Postal-code preference modal (blocks clicks + hides store locator inputs)
+  try {
+    const postalModal = page
+      .locator("#js-modal-postal, .js-modal-postal, .modal.js-modal-postal")
+      .first();
+    if (await postalModal.count()) {
+      // If visible, close it
+      if (await postalModal.isVisible().catch(() => false)) {
+        // Try close buttons
+        await postalModal
+          .locator(
+            'button[aria-label="Close"], button:has-text("×"), .close, .modal-close'
+          )
+          .first()
+          .click()
+          .catch(() => {});
+        // Or hit Escape
+        await page.keyboard.press("Escape").catch(() => {});
+        await page.waitForTimeout(300);
+      }
+    }
+
+    // Also remove active backdrops that intercept pointer events
+    await page
+      .evaluate(() => {
+        const selectors = [
+          ".js-dialog-backdrop.is-active",
+          ".b-pdp-instore_panel.js-dialog-backdrop.is-active",
+          ".onetrust-pc-dark-filter.ot-fade-in"
+        ];
+        for (const sel of selectors) {
+          document.querySelectorAll(sel).forEach((el) => {
+            el.style.pointerEvents = "none";
+            el.style.opacity = "0";
+          });
+        }
+      })
+      .catch(() => {});
+  } catch {}
+
   const tryClick = async (locator) => {
     if (await locator.isVisible().catch(() => false)) {
       await locator.click({ timeout: 5000 }).catch(() => {});
@@ -139,6 +179,7 @@ const openStoreSelector = async (page) => {
     .first();
   await trigger.waitFor({ state: "visible", timeout: 20000 });
   await trigger.scrollIntoViewIfNeeded().catch(() => {});
+  await closeOverlays(page);
   await trigger.click({ timeout: 15000 }).catch(async () => {
     await trigger.click({ timeout: 15000, force: true });
   });
@@ -172,17 +213,27 @@ const setMyStoreByCityAndId = async (page, { city, storeId, name }) => {
   await openStoreSelector(page);
   await closeOverlays(page);
 
-  const locationInput = page
+  const locatorRoot = page
+    .locator(".b-locator, .b-locator_modal, .b-store-modal, [role='dialog']")
+    .filter({
+      has: page.locator("text=/Find Stores|Use My Location|Radius/i")
+    })
+    .first();
+  await locatorRoot.waitFor({ state: "visible", timeout: 30000 });
+
+  const locationInput = locatorRoot
     .locator(
-      "input[placeholder*='Enter a Location'], input[aria-label*='Enter a Location'], input[placeholder*='Enter location'], input[name*='location'], input[id*='location']"
+      "input[placeholder*='Street Address' i], input[placeholder*='City' i], input[placeholder*='Province' i], input[placeholder*='Enter a Location' i]"
     )
+    .filter({ hasNot: page.locator("#locationPostalCode") })
     .first();
   await locationInput.waitFor({ state: "visible", timeout: 20000 });
   await locationInput.fill(city);
 
-  const findStoresButton = page
+  const findStoresButton = locatorRoot
     .locator("button:has-text('Find Stores'), button:has-text('Find Store')")
     .first();
+  await closeOverlays(page);
   await findStoresButton.click({ timeout: 10000 }).catch(async () => {
     await findStoresButton.click({ timeout: 10000, force: true });
   });
@@ -248,6 +299,7 @@ const setMyStoreByCityAndId = async (page, { city, storeId, name }) => {
 
   await storeButtonLocator.scrollIntoViewIfNeeded().catch(() => {});
   try {
+    await closeOverlays(page);
     await storeButtonLocator.click({ timeout: 15000 });
   } catch (error) {
     console.warn("[toysrus] store select click failed, retrying", error);
