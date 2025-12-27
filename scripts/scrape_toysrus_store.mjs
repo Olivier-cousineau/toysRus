@@ -217,6 +217,15 @@ const ensureDir = async (dir) => {
   await fs.mkdir(dir, { recursive: true });
 };
 
+const dumpDebug = async (page, tag) => {
+  await page
+    .screenshot({ path: `outputs/debug/${tag}.png`, fullPage: true })
+    .catch(() => {});
+  const html = await page.content().catch(() => "");
+  await fs.mkdir("outputs/debug", { recursive: true }).catch(() => {});
+  await fs.writeFile(`outputs/debug/${tag}.html`, html).catch(() => {});
+};
+
 const readStores = async () => {
   const raw = await fs.readFile(path.join("public", "toysrus", "stores.json"), "utf8");
   return JSON.parse(raw);
@@ -365,22 +374,36 @@ const scrapeStore = async () => {
   await handleOneTrust(page);
   await storeBtn.waitFor({ state: "visible", timeout: 30000 });
   await closeActiveBackdrops(page);
-  await storeBtn.click({ timeout: 30000 });
+  try {
+    await storeBtn.click({ timeout: 15000 });
+  } catch {
+    await storeBtn.click({ timeout: 15000, force: true });
+  }
 
-  const storeModal = page
-    .locator(".b-locator:visible, .b-store-modal:visible, .b-locator_modal:visible, #store:visible")
-    .first();
-  await storeModal.waitFor({ state: "visible", timeout: 30000 });
-  const searchInput = storeModal
-    .locator(
-      "input[placeholder*='Enter a Location' i], input[aria-label*='Enter a Location' i], input[type='search']"
-    )
-    .first();
-  await searchInput.waitFor({ state: "visible", timeout: 30000 });
-  const modal = storeModal;
-  await searchInput.click({ timeout: 15000 });
-  await searchInput.fill("");
-  await searchInput.type(storeSearchName, { delay: 50 });
+  const storeLocationInput = page.locator(
+    [
+      "input[placeholder*='Street Address' i]:visible",
+      "input[placeholder*='Postal Code' i]:visible",
+      ".l-header-status input[placeholder*='Enter a Location' i]:visible",
+      ".l-header-status input[aria-label*='Enter a Location' i]:visible",
+      ".l-header-status input[placeholder*='Street Address' i]:visible"
+    ].join(", ")
+  ).first();
+  try {
+    await storeLocationInput.waitFor({ state: "visible", timeout: 30000 });
+  } catch (error) {
+    if (error?.name === "TimeoutError") {
+      await dumpDebug(page, `storelocator_timeout_${store.storeId}`);
+    }
+    throw error;
+  }
+
+  const storePanel = storeLocationInput.locator(
+    "xpath=ancestor::*[self::div or self::section or self::form][1]"
+  );
+  await storeLocationInput.click({ timeout: 15000 });
+  await storeLocationInput.fill("");
+  await storeLocationInput.type(storeSearchName, { delay: 50 });
   await page.waitForTimeout(randomDelay());
 
   const escapeRegExp = (value) =>
@@ -406,13 +429,13 @@ const scrapeStore = async () => {
     }
     return false;
   };
-  const findStoresButton = modal.locator(
-    "button:has-text('Find Stores'), button:has-text('Trouver des magasins')"
+  const findStoresButton = storePanel.locator(
+    "button:has-text('Find Stores'):visible, button:has-text('FIND STORES'):visible, button:has-text('Trouver des magasins'):visible"
   );
   await findStoresButton.first().click({ timeout: 15000 });
 
   const storeNameRegex = new RegExp(escapeRegExp(storeName), "i");
-  const resultsArea = modal
+  const resultsArea = storePanel
     .locator(
       ".store-results, [data-testid*='store-results'], .b-locator_results, ul, .results"
     )
