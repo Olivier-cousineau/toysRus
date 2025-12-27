@@ -380,15 +380,26 @@ const scrapeStore = async () => {
     await storeBtn.click({ timeout: 15000, force: true });
   }
 
-  const storeLocationInput = page.locator(
-    [
-      "input[placeholder*='Street Address' i]:visible",
-      "input[placeholder*='Postal Code' i]:visible",
-      ".l-header-status input[placeholder*='Enter a Location' i]:visible",
-      ".l-header-status input[aria-label*='Enter a Location' i]:visible",
-      ".l-header-status input[placeholder*='Street Address' i]:visible"
-    ].join(", ")
-  ).first();
+  const findStoresButton = page
+    .locator(
+      "button:has-text('Find Stores'):visible, button:has-text('FIND STORES'):visible, button:has-text('Trouver des magasins'):visible"
+    )
+    .first();
+  try {
+    await findStoresButton.waitFor({ state: "visible", timeout: 30000 });
+  } catch (error) {
+    if (error?.name === "TimeoutError") {
+      await dumpDebug(page, `storelocator_timeout_${store.storeId}`);
+    }
+    throw error;
+  }
+
+  const storePanel = findStoresButton.locator(
+    "xpath=ancestor::*[self::div or self::section or self::form][1]"
+  );
+  const storeLocationInput = storePanel
+    .locator("input:not(#header-search-input):visible")
+    .first();
   try {
     await storeLocationInput.waitFor({ state: "visible", timeout: 30000 });
   } catch (error) {
@@ -397,10 +408,6 @@ const scrapeStore = async () => {
     }
     throw error;
   }
-
-  const storePanel = storeLocationInput.locator(
-    "xpath=ancestor::*[self::div or self::section or self::form][1]"
-  );
   await storeLocationInput.click({ timeout: 15000 });
   await storeLocationInput.fill("");
   await storeLocationInput.type(storeSearchName, { delay: 50 });
@@ -429,9 +436,6 @@ const scrapeStore = async () => {
     }
     return false;
   };
-  const findStoresButton = storePanel.locator(
-    "button:has-text('Find Stores'):visible, button:has-text('FIND STORES'):visible, button:has-text('Trouver des magasins'):visible"
-  );
   await findStoresButton.first().click({ timeout: 15000 });
 
   const storeNameRegex = new RegExp(escapeRegExp(storeName), "i");
