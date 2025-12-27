@@ -171,6 +171,38 @@ const closeBlockingModals = async (page) => {
   await page.waitForTimeout(randomShortDelay());
 };
 
+const closeActiveBackdrops = async (page) => {
+  try {
+    await page.keyboard.press("Escape").catch(() => {});
+    const closeButton = page
+      .locator(
+        "button:has-text('Close'), button[aria-label='Close'], .modal button.close, button:has-text('×')"
+      )
+      .first();
+    if (await closeButton.isVisible().catch(() => false)) {
+      await closeButton.click({ timeout: 3000 }).catch(() => {});
+    }
+
+    await page.evaluate(() => {
+      [
+        ".js-dialog-backdrop.is-active",
+        ".b-pdp-instore_panel.js-dialog-backdrop"
+      ].forEach((selector) => {
+        document.querySelectorAll(selector).forEach((element) => element.remove());
+      });
+    });
+  } catch (error) {
+    const message = String(error?.message || error);
+    if (
+      message.includes("Execution context was destroyed") ||
+      message.includes("Cannot find context")
+    ) {
+      return;
+    }
+    throw error;
+  }
+};
+
 const isLikelyProductUrl = (value) =>
   /\/p\//i.test(value) || /\b\d{5,}\b/.test(value);
 
@@ -312,6 +344,7 @@ const scrapeStore = async () => {
 
   await page.goto(seedUrl, { waitUntil: "domcontentloaded" });
   await handleOneTrust(page);
+  await closeActiveBackdrops(page);
   const postalModal = page.locator("#js-modal-postal");
   if (await postalModal.isVisible().catch(() => false)) {
     await page.keyboard.press("Escape").catch(() => {});
@@ -331,17 +364,20 @@ const scrapeStore = async () => {
 
   await handleOneTrust(page);
   await storeBtn.waitFor({ state: "visible", timeout: 30000 });
+  await closeActiveBackdrops(page);
   await storeBtn.click({ timeout: 30000 });
 
-  const searchInput = page
+  const storeModal = page
+    .locator(".b-locator:visible, .b-store-modal:visible, .b-locator_modal:visible, #store:visible")
+    .first();
+  await storeModal.waitFor({ state: "visible", timeout: 30000 });
+  const searchInput = storeModal
     .locator(
-      "input[placeholder*='Enter a Location' i]:visible, input[aria-label*='Enter a Location' i]:visible, input[type='search']:visible"
+      "input[placeholder*='Enter a Location' i], input[aria-label*='Enter a Location' i], input[type='search']"
     )
     .first();
   await searchInput.waitFor({ state: "visible", timeout: 30000 });
-  const modal = searchInput.locator(
-    "xpath=ancestor::*[self::div or self::section or self::form][1]"
-  );
+  const modal = storeModal;
   await searchInput.click({ timeout: 15000 });
   await searchInput.fill("");
   await searchInput.type(storeSearchName, { delay: 50 });
@@ -452,6 +488,7 @@ const scrapeStore = async () => {
     page.waitForLoadState("domcontentloaded", { timeout: 30000 }),
     page.waitForLoadState("networkidle", { timeout: 30000 }).catch(() => {})
   ]);
+  await closeActiveBackdrops(page);
 
   await page.waitForFunction(
     (expectedStore) => {
