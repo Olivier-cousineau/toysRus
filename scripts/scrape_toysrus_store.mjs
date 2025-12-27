@@ -497,7 +497,7 @@ const scrapeStore = async () => {
 
   let loadMoreClicks = 0;
   let noProgress = 0;
-  const loadMoreLocator = page.locator(
+  const loadMoreProductLocator = page.locator(
     "button:has-text('Load More'):visible, button:has-text('LOAD MORE'):visible, a:has-text('Load More'):visible, a:has-text('LOAD MORE'):visible, [role='button']:has-text('Load More'):visible, [role='button']:has-text('LOAD MORE'):visible"
   );
   const getProgressCounts = async () => {
@@ -516,7 +516,10 @@ const scrapeStore = async () => {
 
   for (let i = 0; i < maxLoadMoreClicks; i += 1) {
     await closeBlockingModals(page);
-    const isVisible = await loadMoreLocator.first().isVisible().catch(() => false);
+    const isVisible = await loadMoreProductLocator
+      .first()
+      .isVisible()
+      .catch(() => false);
     if (!isVisible) {
       break;
     }
@@ -525,7 +528,7 @@ const scrapeStore = async () => {
     await page.waitForTimeout(randomScrollDelay());
 
     await handleOneTrust(page);
-    await loadMoreLocator.first().click({ timeout: 15000 }).catch(() => null);
+    await loadMoreProductLocator.first().click({ timeout: 15000 }).catch(() => null);
     loadMoreClicks += 1;
     await page.waitForTimeout(randomDelay(800, 1200));
 
