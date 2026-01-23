@@ -268,9 +268,7 @@ const closeOverlays = async (page) => {
 
 const openStoreSelector = async (page) => {
   const trigger = page
-    .locator(
-      "button:has-text('Select Your Store'), button:has-text('Select My Store'), button:has-text('My Store'), a:has-text('Select Your Store'), a:has-text('My Store')"
-    )
+    .locator("button.btn-storelocator-search-header.js-storelocator-search")
     .first();
   await trigger.waitFor({ state: "visible", timeout: 20000 });
   await trigger.scrollIntoViewIfNeeded().catch(() => {});
@@ -304,34 +302,72 @@ const setRadiusTo100 = async (page) => {
 };
 
 const setMyStoreByCityAndId = async (page, { city, storeId, name }) => {
-  await closeOverlays(page);
-  await openStoreSelector(page);
-  await closeOverlays(page);
+  try {
+    const storeLocatorInput = page
+      .locator("input#store-postal-code.js-storelocator-input")
+      .first();
+    let storeLocatorReady = false;
 
-  const locatorRoot = page
-    .locator(".b-locator, .b-locator_modal, .b-store-modal, [role='dialog']")
-    .filter({
-      has: page.locator("text=/Find Stores|Use My Location|Radius/i")
-    })
-    .first();
-  await locatorRoot.waitFor({ state: "visible", timeout: 30000 });
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await closeOverlays(page);
+      await openStoreSelector(page);
+      await closeOverlays(page);
 
-  const locationInput = locatorRoot
-    .locator(
-      "input[placeholder*='Street Address' i], input[placeholder*='City' i], input[placeholder*='Province' i], input[placeholder*='Enter a Location' i]"
-    )
-    .filter({ hasNot: page.locator("#locationPostalCode") })
-    .first();
-  await locationInput.waitFor({ state: "visible", timeout: 20000 });
-  await locationInput.fill(city);
+      try {
+        await storeLocatorInput.waitFor({ state: "visible", timeout: 15000 });
+        storeLocatorReady = true;
+        break;
+      } catch (error) {
+        const dialogLocator = page
+          .locator(".b-locator, .b-locator_modal, .b-store-modal, [role='dialog']")
+          .first();
+        if (
+          (await dialogLocator.count()) &&
+          (await dialogLocator.isHidden().catch(() => false))
+        ) {
+          await dialogLocator
+            .evaluate((element) => {
+              element.style.display = "block";
+              element.style.visibility = "visible";
+              element.style.opacity = "1";
+              element.style.pointerEvents = "auto";
+              element.classList.remove("hidden");
+            })
+            .catch(() => {});
+          await storeLocatorInput
+            .waitFor({ state: "attached", timeout: 5000 })
+            .catch(() => {});
+          await storeLocatorInput.scrollIntoViewIfNeeded().catch(() => {});
+        }
 
-  const findStoresButton = locatorRoot
-    .locator("button:has-text('Find Stores'), button:has-text('Find Store')")
-    .first();
-  await closeOverlays(page);
-  await findStoresButton.click({ timeout: 10000 }).catch(async () => {
-    await findStoresButton.click({ timeout: 10000, force: true });
-  });
+        if (attempt === 2) {
+          throw error;
+        }
+      }
+    }
+
+    if (!storeLocatorReady) {
+      throw new Error("Store locator input not ready after retries.");
+    }
+
+    await storeLocatorInput.fill(city);
+
+    const findStoresButton = page
+      .locator(
+        "button.btn-storelocator-search.js-storelocator-search, button:has-text('Find Stores'), button:has-text('Find Store')"
+      )
+      .first();
+    await closeOverlays(page);
+    await findStoresButton.click({ timeout: 10000 }).catch(async () => {
+      await findStoresButton.click({ timeout: 10000, force: true });
+    });
+  } catch (error) {
+    await page.screenshot({ path: "debug_store_locator.png", fullPage: true });
+    await page
+      .content()
+      .then((html) => require("fs").writeFileSync("debug_store_locator.html", html));
+    throw error;
+  }
 
   await page.waitForTimeout(randomDelay());
   await setRadiusTo100(page);
