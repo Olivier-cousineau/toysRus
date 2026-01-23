@@ -271,10 +271,11 @@ const closeOverlays = async (page) => {
 };
 
 const openStoreSelector = async (page) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
   await dismissOverlays(page);
-  const triggerLocator = page.locator(
-    "button.btn-storelocator-search-header.js-storelocator-search"
-  );
+  const triggerSelector =
+    "button.btn-storelocator-search-header.js-storelocator-search";
+  const triggerLocator = page.locator(triggerSelector);
   await triggerLocator.first().waitFor({ state: "attached", timeout: 20000 });
 
   const triggerCount = await triggerLocator.count();
@@ -288,14 +289,16 @@ const openStoreSelector = async (page) => {
   }
 
   await trigger.scrollIntoViewIfNeeded().catch(() => {});
+  await trigger.focus().catch(() => {});
   await closeOverlays(page);
-  if (await trigger.isVisible().catch(() => false)) {
-    await trigger.click({ timeout: 15000 }).catch(async () => {
-      await trigger.click({ timeout: 15000, force: true });
+  await trigger
+    .click({ timeout: 15000 })
+    .catch(() => trigger.click({ timeout: 15000, force: true }))
+    .catch(async () => {
+      await page.evaluate((selector) => {
+        document.querySelector(selector)?.click();
+      }, triggerSelector);
     });
-  } else {
-    await trigger.click({ timeout: 15000, force: true });
-  }
 
   await page
     .locator("input#store-postal-code.js-storelocator-input")
