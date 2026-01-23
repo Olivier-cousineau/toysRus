@@ -1,4 +1,4 @@
-import fs from "fs/promises";
+import fs from "node:fs";
 import path from "path";
 import { chromium } from "playwright";
 
@@ -38,16 +38,16 @@ const parsePrice = (value) => {
 };
 
 const ensureDir = async (dir) => {
-  await fs.mkdir(dir, { recursive: true });
+  await fs.promises.mkdir(dir, { recursive: true });
 };
 
 const dumpDebug = async (page, tag) => {
-  await fs.mkdir("outputs/debug", { recursive: true }).catch(() => {});
+  await fs.promises.mkdir("outputs/debug", { recursive: true }).catch(() => {});
   await page
     .screenshot({ path: `outputs/debug/${tag}.png`, fullPage: true })
     .catch(() => {});
   const html = await page.content().catch(() => "");
-  await fs.writeFile(`outputs/debug/${tag}.html`, html).catch(() => {});
+  await fs.promises.writeFile(`outputs/debug/${tag}.html`, html).catch(() => {});
 };
 
 const storeSources = [
@@ -59,7 +59,7 @@ const storeSources = [
 const readStores = async () => {
   for (const source of storeSources) {
     try {
-      const raw = await fs.readFile(source, "utf8");
+      const raw = await fs.promises.readFile(source, "utf8");
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) {
         return parsed;
@@ -365,7 +365,7 @@ const setMyStoreByCityAndId = async (page, { city, storeId, name }) => {
     await page.screenshot({ path: "debug_store_locator.png", fullPage: true });
     await page
       .content()
-      .then((html) => require("fs").writeFileSync("debug_store_locator.html", html));
+      .then((html) => fs.writeFileSync("debug_store_locator.html", html));
     throw error;
   }
 
@@ -636,7 +636,7 @@ const runSingleStore = async ({ storeId, city, name, allowStoreFallback }) => {
     const outputDir = path.join("data", "toysrus", String(storeId));
     await ensureDir(outputDir);
 
-    await fs.writeFile(
+    await fs.promises.writeFile(
       path.join(outputDir, "data.json"),
       JSON.stringify(
         {
@@ -652,7 +652,7 @@ const runSingleStore = async ({ storeId, city, name, allowStoreFallback }) => {
       )
     );
 
-    await fs.writeFile(
+    await fs.promises.writeFile(
       path.join(outputDir, "meta.json"),
       JSON.stringify(
         {
@@ -695,7 +695,7 @@ const runSingleStore = async ({ storeId, city, name, allowStoreFallback }) => {
         .map((value) => `"${String(value).replace(/"/g, '""')}"`)
         .join(",")
     );
-    await fs.writeFile(
+    await fs.promises.writeFile(
       path.join(outputDir, "data.csv"),
       [header.join(","), ...rows].join("\n")
     );
