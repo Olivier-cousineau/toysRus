@@ -4,7 +4,6 @@ import { chromium } from "playwright";
 
 const CLEARANCE_URL = "https://www.toysrus.ca/en/toysrus/CLEARANCE";
 const MAX_LOADMORE_CLICKS = Number(process.env.MAX_LOADMORE_PRODUCTS) || 80;
-const MAX_STORE_LOADMORE_CLICKS = 40;
 
 const randomDelay = (minMs = 700, maxMs = 1200) =>
   Math.floor(Math.random() * (maxMs - minMs + 1)) + minMs;
@@ -91,6 +90,12 @@ const normalizeStoreText = (value) =>
     .replace(/\s+/g, " ")
     .trim();
 
+const normalizeCity = (value) =>
+  normalizeStoreText(value)
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "");
+
 const slugify = (value) =>
   String(value ?? "")
     .toLowerCase()
@@ -99,9 +104,6 @@ const slugify = (value) =>
     .trim()
     .replace(/[\s_-]+/g, "-")
     .replace(/^-+|-+$/g, "");
-
-const escapeRegex = (value) =>
-  String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 const buildStoreLabel = (store) => {
   const city = normalizeStoreText(store?.city);
@@ -502,76 +504,85 @@ const setMyStoreByCityAndId = async (page, { city, storeId, name }) => {
   await setRadiusTo100(page);
   await closeOverlays(page);
 
-  const cityRegex = new RegExp(escapeRegex(city), "i");
-  const storeRowLocator = page
-    .locator("button.js-select-store")
-    .locator("xpath=ancestor::*[self::li or self::div][1]");
-  const matchingRowLocator = storeRowLocator.filter({ hasText: cityRegex });
-  const storeLoadMoreLocator = page.locator(
-    "button:has-text('Load More'), a:has-text('Load More'), [role='button']:has-text('Load More')"
-  );
+  const storeCardLocator = page.locator(".js-card-body.b-locator_card");
+  await storeCardLocator.first().waitFor({ state: "attached", timeout: 30000 });
 
-  let storeLoadMoreClicks = 0;
-  let storeFound = false;
+  const targetCity = normalizeCity(city);
+  const cardCount = await storeCardLocator.count();
+  let matchedStoreId = null;
+  let matchedInfo = null;
 
-  for (let i = 0; i < MAX_STORE_LOADMORE_CLICKS; i += 1) {
-    await closeOverlays(page);
-    if (await matchingRowLocator.first().isVisible().catch(() => false)) {
-      storeFound = true;
-      break;
+  for (let i = 0; i < cardCount; i += 1) {
+    const card = storeCardLocator.nth(i);
+    const infoRaw = await card.getAttribute("data-store-info").catch(() => null);
+    if (!infoRaw) continue;
+
+    const decoded = await page.evaluate((value) => {
+      const textarea = document.createElement("textarea");
+      textarea.innerHTML = value;
+      return textarea.value;
+    }, infoRaw);
+
+    let info;
+    try {
+      info = JSON.parse(decoded);
+    } catch {
+      continue;
     }
 
-    const loadMoreVisible = await storeLoadMoreLocator
-      .first()
-      .isVisible()
-      .catch(() => false);
-    if (!loadMoreVisible) {
-      break;
+    const candidateCity = normalizeCity(info?.city || info?.name || "");
+    if (!candidateCity) continue;
+    if (!candidateCity.includes(targetCity) && !targetCity.includes(candidateCity)) {
+      continue;
     }
 
-    await storeLoadMoreLocator.first().scrollIntoViewIfNeeded().catch(() => {});
-    await storeLoadMoreLocator.first().click({ timeout: 15000 }).catch(() => null);
-    storeLoadMoreClicks += 1;
-    await page.waitForTimeout(randomDelay());
+    const rawId = info?.ID ?? info?.id ?? info?.storeId;
+    const cardId = await card.getAttribute("id").catch(() => null);
+    const resolvedId = String(rawId ?? cardId ?? "").trim();
+    if (!resolvedId) continue;
+
+    matchedStoreId = resolvedId;
+    matchedInfo = info;
+    break;
   }
 
-  console.log(`[toysrus] storeLoadMoreClicks=${storeLoadMoreClicks}`);
-
-  if (!storeFound) {
-    const storeCount = await storeRowLocator.count();
-    const maxLogs = Math.min(storeCount, 10);
+  if (!matchedStoreId) {
+    const maxLogs = Math.min(cardCount, 10);
     if (maxLogs) {
       console.warn("[toysrus] store selector list (first 10):");
     }
     for (let i = 0; i < maxLogs; i += 1) {
-      const text = await storeRowLocator
-        .nth(i)
-        .innerText()
-        .catch(() => "");
-      console.warn(`[toysrus] store ${i + 1}: ${text.replace(/\s+/g, " ").trim()}`);
+      const card = storeCardLocator.nth(i);
+      const infoRaw = await card.getAttribute("data-store-info").catch(() => null);
+      if (!infoRaw) continue;
+      const decoded = await page.evaluate((value) => {
+        const textarea = document.createElement("textarea");
+        textarea.innerHTML = value;
+        return textarea.value;
+      }, infoRaw);
+      try {
+        const info = JSON.parse(decoded);
+        console.warn(
+          `[toysrus] store ${i + 1}: id=${info?.ID ?? info?.id ?? ""} city=${
+            info?.city ?? info?.name ?? ""
+          }`
+        );
+      } catch {
+        console.warn(`[toysrus] store ${i + 1}: data-store-info parse failed`);
+      }
     }
     await dumpStoreListDebug(page);
-    const modalText = await page
-      .locator("[role='dialog'], .modal, .store-locator, .store-locator__results")
-      .first()
-      .innerText()
-      .catch(() => "");
-    const snippet = modalText.replace(/\s+/g, " ").trim().slice(0, 400);
-    throw new Error(
-      `City not found in store selector list: city=${city} text="${snippet}"`
-    );
+    throw new Error(`City not found in store selector list: city=${city}`);
   }
 
-  const storeRow = matchingRowLocator.first();
-  const chosenStoreText = (await storeRow.innerText().catch(() => ""))
-    .replace(/\s+/g, " ")
-    .trim();
-  console.log(`[toysrus] chosenStoreText="${chosenStoreText}"`);
+  console.log(
+    `[toysrus] matched store selector storeId=${matchedStoreId} city=${
+      matchedInfo?.city ?? matchedInfo?.name ?? ""
+    }`
+  );
 
-  const storeButtonLocator = storeRow
-    .locator(
-      "button.js-select-store, button:has-text('Select Store'), button:has-text('Select')"
-    )
+  const storeButtonLocator = page
+    .locator(`button.js-select-store[value="${matchedStoreId}"]`)
     .first();
   await storeButtonLocator.scrollIntoViewIfNeeded().catch(() => {});
   try {
@@ -580,10 +591,6 @@ const setMyStoreByCityAndId = async (page, { city, storeId, name }) => {
   } catch (error) {
     console.warn("[toysrus] store select click failed, retrying", error);
     await storeButtonLocator.click({ timeout: 15000, force: true });
-    if (!(await storeButtonLocator.isVisible().catch(() => false))) {
-      await storeRow.click({ timeout: 10000 }).catch(() => {});
-      await storeButtonLocator.click({ timeout: 15000, force: true });
-    }
   }
 
   console.log(
