@@ -466,9 +466,13 @@ const setMyStoreByCityAndId = async (page, { city, storeId, name }) => {
       )
       .first();
     await closeOverlays(page);
-    await findStoresButton.click({ timeout: 10000 }).catch(async () => {
-      await findStoresButton.click({ timeout: 10000, force: true });
-    });
+    if (await storeLocatorInput.isVisible()) {
+      console.log("[toysrus] store locator input visible; skipping Find Stores click");
+    } else {
+      await findStoresButton.click({ timeout: 10000 }).catch(async () => {
+        await findStoresButton.click({ timeout: 10000, force: true });
+      });
+    }
   } catch (error) {
     await dumpStoreSelectorDebug(page);
     throw error;
