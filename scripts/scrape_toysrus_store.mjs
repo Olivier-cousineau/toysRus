@@ -52,7 +52,8 @@ const dumpDebug = async (page, tag) => {
 
 const STORE_SELECTOR_TRIGGER =
   "button.btn-storelocator-search-header.js-storelocator-search";
-const STORE_SELECTOR_INPUT = "input#store-postal-code.js-storelocator-input";
+const STORE_INPUT = "input#store-postal-code.js-storelocator-input";
+const STORE_SELECTOR_INPUT = STORE_INPUT;
 
 const storeSources = [
   "stores.json",
@@ -342,6 +343,11 @@ const dumpStoreSelectorDebug = async (page) => {
   }
 };
 
+const isStoreSelectorOpen = async (page) => {
+  const input = page.locator(STORE_INPUT).first();
+  return (await input.count()) > 0 && await input.isVisible().catch(() => false);
+};
+
 const openStoreSelector = async (page) => {
   await page.setViewportSize({ width: 1280, height: 900 });
   await dismissOverlays(page);
@@ -428,7 +434,11 @@ const setMyStoreByCityAndId = async (page, { city, storeId, name }) => {
 
     for (let attempt = 0; attempt < 3; attempt += 1) {
       await closeOverlays(page);
-      await openStoreSelector(page);
+      if (!(await isStoreSelectorOpen(page))) {
+        await openStoreSelector(page);
+      } else {
+        console.log("[toysrus] store selector already open; skipping Find Stores click");
+      }
       await closeOverlays(page);
 
       try {
