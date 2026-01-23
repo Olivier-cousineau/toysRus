@@ -173,6 +173,29 @@ const parseArgs = () => {
   };
 };
 
+const dismissOverlays = async (page) => {
+  const tryClick = async (locator) => {
+    if (await locator.isVisible().catch(() => false)) {
+      await locator.click({ timeout: 5000 }).catch(() => {});
+      return true;
+    }
+    return false;
+  };
+
+  await tryClick(
+    page
+      .locator(
+        "#onetrust-accept-btn-handler, button:has-text('Accept All'), button:has-text('Tout accepter')"
+      )
+      .first()
+  );
+
+  const closeButtons = page.locator(
+    "button:has-text('×'), button:has-text('Close'), button:has-text('Fermer'), button[aria-label='Close']"
+  );
+  await tryClick(closeButtons.first());
+};
+
 const closeOverlays = async (page) => {
   // Postal-code preference modal (blocks clicks + hides store locator inputs)
   try {
@@ -214,26 +237,7 @@ const closeOverlays = async (page) => {
       .catch(() => {});
   } catch {}
 
-  const tryClick = async (locator) => {
-    if (await locator.isVisible().catch(() => false)) {
-      await locator.click({ timeout: 5000 }).catch(() => {});
-      return true;
-    }
-    return false;
-  };
-
-  await tryClick(
-    page
-      .locator(
-        "#onetrust-accept-btn-handler, button:has-text('Accept All'), button:has-text('Tout accepter')"
-      )
-      .first()
-  );
-
-  const closeButtons = page.locator(
-    "button:has-text('×'), button:has-text('Close'), button:has-text('Fermer'), button[aria-label='Close']"
-  );
-  await tryClick(closeButtons.first());
+  await dismissOverlays(page);
 
   try {
     await page.evaluate(() => {
@@ -267,15 +271,36 @@ const closeOverlays = async (page) => {
 };
 
 const openStoreSelector = async (page) => {
-  const trigger = page
-    .locator("button.btn-storelocator-search-header.js-storelocator-search")
-    .first();
-  await trigger.waitFor({ state: "visible", timeout: 20000 });
+  await dismissOverlays(page);
+  const triggerLocator = page.locator(
+    "button.btn-storelocator-search-header.js-storelocator-search"
+  );
+  await triggerLocator.first().waitFor({ state: "attached", timeout: 20000 });
+
+  const triggerCount = await triggerLocator.count();
+  let trigger = triggerLocator.first();
+  for (let i = 0; i < triggerCount; i += 1) {
+    const candidate = triggerLocator.nth(i);
+    if (await candidate.isVisible().catch(() => false)) {
+      trigger = candidate;
+      break;
+    }
+  }
+
   await trigger.scrollIntoViewIfNeeded().catch(() => {});
   await closeOverlays(page);
-  await trigger.click({ timeout: 15000 }).catch(async () => {
+  if (await trigger.isVisible().catch(() => false)) {
+    await trigger.click({ timeout: 15000 }).catch(async () => {
+      await trigger.click({ timeout: 15000, force: true });
+    });
+  } else {
     await trigger.click({ timeout: 15000, force: true });
-  });
+  }
+
+  await page
+    .locator("input#store-postal-code.js-storelocator-input")
+    .first()
+    .waitFor({ state: "attached", timeout: 15000 });
 };
 
 const setRadiusTo100 = async (page) => {
