@@ -481,18 +481,21 @@ const setMyStoreByCityAndId = async (page, { city, storeId, name }) => {
     }
 
     await fillStoreLocatorInput(page, storeLocatorInput, city);
+    await storeLocatorInput.press("Enter").catch(() => {});
 
-    const findStoresButton = page
+    const autoCompleteSuggestion = page.locator(".pac-container .pac-item").first();
+    if (await autoCompleteSuggestion.isVisible().catch(() => false)) {
+      await autoCompleteSuggestion.click({ timeout: 5000 }).catch(() => {});
+    }
+
+    const modalSearchButton = page
       .locator(
-        "button.btn-storelocator-search.js-storelocator-search, button:has-text('Find Stores'), button:has-text('Find Store')"
+        "#storeSelectorModal button:has-text('Search'), #storeSelectorModal button:has-text('Find')"
       )
       .first();
-    await closeOverlays(page);
-    if (await storeLocatorInput.isVisible()) {
-      console.log("[toysrus] store locator input visible; skipping Find Stores click");
-    } else {
-      await findStoresButton.click({ timeout: 10000 }).catch(async () => {
-        await findStoresButton.click({ timeout: 10000, force: true });
+    if (await modalSearchButton.isVisible().catch(() => false)) {
+      await modalSearchButton.click({ timeout: 10000 }).catch(async () => {
+        await modalSearchButton.click({ timeout: 10000, force: true });
       });
     }
   } catch (error) {
@@ -504,7 +507,7 @@ const setMyStoreByCityAndId = async (page, { city, storeId, name }) => {
   await setRadiusTo100(page);
   await closeOverlays(page);
 
-  const storeCardLocator = page.locator(".js-card-body.b-locator_card");
+  const storeCardLocator = page.locator("#storeSelectorModal .js-card-body.b-locator_card");
   await storeCardLocator.first().waitFor({ state: "attached", timeout: 30000 });
 
   const targetCity = normalizeCity(city);
