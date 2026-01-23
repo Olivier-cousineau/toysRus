@@ -50,6 +50,10 @@ const dumpDebug = async (page, tag) => {
   await fs.promises.writeFile(`outputs/debug/${tag}.html`, html).catch(() => {});
 };
 
+const STORE_SELECTOR_TRIGGER =
+  "button.btn-storelocator-search-header.js-storelocator-search";
+const STORE_SELECTOR_INPUT = "input#store-postal-code.js-storelocator-input";
+
 const storeSources = [
   "stores.json",
   "toysrus_stores.json",
@@ -270,12 +274,78 @@ const closeOverlays = async (page) => {
   await page.waitForTimeout(randomShortDelay());
 };
 
+const forceStoreSelectorVisible = async (page) => {
+  await page
+    .evaluate(() => {
+      const modal = document.querySelector("#storeSelectorModal");
+      const dialog = modal?.closest("[role='dialog'], .modal, dialog") ?? modal;
+      [modal, dialog].filter(Boolean).forEach((element) => {
+        element.style.display = "block";
+        element.style.visibility = "visible";
+        element.style.opacity = "1";
+        element.style.pointerEvents = "auto";
+        element.classList.remove("hidden");
+        element.removeAttribute("aria-hidden");
+      });
+    })
+    .catch(() => {});
+};
+
+const logStoreSelectorStyles = async (page) => {
+  const styles = await page
+    .evaluate((inputSelector) => {
+      const input = document.querySelector(inputSelector);
+      const modal = document.querySelector("#storeSelectorModal");
+      const dialog = modal?.closest("[role='dialog'], .modal, dialog") ?? modal;
+      const describe = (element) => {
+        if (!element) return null;
+        const computed = window.getComputedStyle(element);
+        return {
+          tag: element.tagName,
+          id: element.id || null,
+          className: element.className || null,
+          display: computed.display,
+          visibility: computed.visibility,
+          opacity: computed.opacity
+        };
+      };
+      return {
+        input: describe(input),
+        modal: describe(modal),
+        dialog: describe(dialog)
+      };
+    }, STORE_SELECTOR_INPUT)
+    .catch(() => null);
+
+  if (styles) {
+    console.warn("[toysrus] store selector computed styles", styles);
+  }
+  return styles;
+};
+
+const dumpStoreSelectorDebug = async (page) => {
+  await page
+    .screenshot({ path: "debug_store_selector.png", fullPage: true })
+    .catch(() => {});
+  const html = await page.content().catch(() => "");
+  await fs.promises
+    .writeFile("debug_store_selector.html", html)
+    .catch(() => {});
+  const styles = await logStoreSelectorStyles(page);
+  if (styles) {
+    await fs.promises
+      .writeFile(
+        "debug_store_selector_styles.json",
+        JSON.stringify(styles, null, 2)
+      )
+      .catch(() => {});
+  }
+};
+
 const openStoreSelector = async (page) => {
   await page.setViewportSize({ width: 1280, height: 900 });
   await dismissOverlays(page);
-  const triggerSelector =
-    "button.btn-storelocator-search-header.js-storelocator-search";
-  const triggerLocator = page.locator(triggerSelector);
+  const triggerLocator = page.locator(STORE_SELECTOR_TRIGGER);
   await triggerLocator.first().waitFor({ state: "attached", timeout: 20000 });
 
   const triggerCount = await triggerLocator.count();
@@ -297,13 +367,33 @@ const openStoreSelector = async (page) => {
     .catch(async () => {
       await page.evaluate((selector) => {
         document.querySelector(selector)?.click();
-      }, triggerSelector);
+      }, STORE_SELECTOR_TRIGGER);
     });
 
+  await forceStoreSelectorVisible(page);
   await page
-    .locator("input#store-postal-code.js-storelocator-input")
+    .locator(STORE_SELECTOR_INPUT)
     .first()
     .waitFor({ state: "attached", timeout: 15000 });
+};
+
+const fillStoreLocatorInput = async (page, inputLocator, value) => {
+  await inputLocator.waitFor({ state: "attached", timeout: 15000 });
+  await inputLocator.scrollIntoViewIfNeeded().catch(() => {});
+  await inputLocator.click({ force: true }).catch(() => {});
+
+  try {
+    await inputLocator.fill(value, { timeout: 8000 });
+    return;
+  } catch (error) {
+    await inputLocator
+      .evaluate((element, nextValue) => {
+        element.value = nextValue;
+        element.dispatchEvent(new Event("input", { bubbles: true }));
+        element.dispatchEvent(new Event("change", { bubbles: true }));
+      }, value)
+      .catch(() => {});
+  }
 };
 
 const setRadiusTo100 = async (page) => {
@@ -332,7 +422,7 @@ const setRadiusTo100 = async (page) => {
 const setMyStoreByCityAndId = async (page, { city, storeId, name }) => {
   try {
     const storeLocatorInput = page
-      .locator("input#store-postal-code.js-storelocator-input")
+      .locator(STORE_SELECTOR_INPUT)
       .first();
     let storeLocatorReady = false;
 
@@ -342,32 +432,12 @@ const setMyStoreByCityAndId = async (page, { city, storeId, name }) => {
       await closeOverlays(page);
 
       try {
-        await storeLocatorInput.waitFor({ state: "visible", timeout: 15000 });
+        await forceStoreSelectorVisible(page);
+        await storeLocatorInput.waitFor({ state: "attached", timeout: 15000 });
         storeLocatorReady = true;
         break;
       } catch (error) {
-        const dialogLocator = page
-          .locator(".b-locator, .b-locator_modal, .b-store-modal, [role='dialog']")
-          .first();
-        if (
-          (await dialogLocator.count()) &&
-          (await dialogLocator.isHidden().catch(() => false))
-        ) {
-          await dialogLocator
-            .evaluate((element) => {
-              element.style.display = "block";
-              element.style.visibility = "visible";
-              element.style.opacity = "1";
-              element.style.pointerEvents = "auto";
-              element.classList.remove("hidden");
-            })
-            .catch(() => {});
-          await storeLocatorInput
-            .waitFor({ state: "attached", timeout: 5000 })
-            .catch(() => {});
-          await storeLocatorInput.scrollIntoViewIfNeeded().catch(() => {});
-        }
-
+        await forceStoreSelectorVisible(page);
         if (attempt === 2) {
           throw error;
         }
@@ -378,7 +448,7 @@ const setMyStoreByCityAndId = async (page, { city, storeId, name }) => {
       throw new Error("Store locator input not ready after retries.");
     }
 
-    await storeLocatorInput.fill(city);
+    await fillStoreLocatorInput(page, storeLocatorInput, city);
 
     const findStoresButton = page
       .locator(
@@ -390,10 +460,7 @@ const setMyStoreByCityAndId = async (page, { city, storeId, name }) => {
       await findStoresButton.click({ timeout: 10000, force: true });
     });
   } catch (error) {
-    await page.screenshot({ path: "debug_store_locator.png", fullPage: true });
-    await page
-      .content()
-      .then((html) => fs.writeFileSync("debug_store_locator.html", html));
+    await dumpStoreSelectorDebug(page);
     throw error;
   }
 
