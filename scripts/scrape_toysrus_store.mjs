@@ -91,6 +91,18 @@ const normalizeStoreText = (value) =>
     .replace(/\s+/g, " ")
     .trim();
 
+const slugify = (value) =>
+  String(value ?? "")
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[^\w\s-]/g, "")
+    .trim()
+    .replace(/[\s_-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+const escapeRegex = (value) =>
+  String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 const buildStoreLabel = (store) => {
   const city = normalizeStoreText(store?.city);
   const province = normalizeStoreText(
@@ -343,6 +355,14 @@ const dumpStoreSelectorDebug = async (page) => {
   }
 };
 
+const dumpStoreListDebug = async (page) => {
+  await page
+    .screenshot({ path: "debug_store_list.png", fullPage: true })
+    .catch(() => {});
+  const html = await page.content().catch(() => "");
+  await fs.promises.writeFile("debug_store_list.html", html).catch(() => {});
+};
+
 const isStoreSelectorOpen = async (page) => {
   const input = page.locator(STORE_INPUT).first();
   return (await input.count()) > 0 && await input.isVisible().catch(() => false);
@@ -482,11 +502,11 @@ const setMyStoreByCityAndId = async (page, { city, storeId, name }) => {
   await setRadiusTo100(page);
   await closeOverlays(page);
 
-  const storeButtonLocator = page
-    .locator(
-      `button.js-select-store[value="${storeId}"], button[value="${storeId}"]`
-    )
-    .first();
+  const cityRegex = new RegExp(escapeRegex(city), "i");
+  const storeRowLocator = page
+    .locator("button.js-select-store")
+    .locator("xpath=ancestor::*[self::li or self::div][1]");
+  const matchingRowLocator = storeRowLocator.filter({ hasText: cityRegex });
   const storeLoadMoreLocator = page.locator(
     "button:has-text('Load More'), a:has-text('Load More'), [role='button']:has-text('Load More')"
   );
@@ -496,7 +516,7 @@ const setMyStoreByCityAndId = async (page, { city, storeId, name }) => {
 
   for (let i = 0; i < MAX_STORE_LOADMORE_CLICKS; i += 1) {
     await closeOverlays(page);
-    if (await storeButtonLocator.isVisible().catch(() => false)) {
+    if (await matchingRowLocator.first().isVisible().catch(() => false)) {
       storeFound = true;
       break;
     }
@@ -518,6 +538,19 @@ const setMyStoreByCityAndId = async (page, { city, storeId, name }) => {
   console.log(`[toysrus] storeLoadMoreClicks=${storeLoadMoreClicks}`);
 
   if (!storeFound) {
+    const storeCount = await storeRowLocator.count();
+    const maxLogs = Math.min(storeCount, 10);
+    if (maxLogs) {
+      console.warn("[toysrus] store selector list (first 10):");
+    }
+    for (let i = 0; i < maxLogs; i += 1) {
+      const text = await storeRowLocator
+        .nth(i)
+        .innerText()
+        .catch(() => "");
+      console.warn(`[toysrus] store ${i + 1}: ${text.replace(/\s+/g, " ").trim()}`);
+    }
+    await dumpStoreListDebug(page);
     const modalText = await page
       .locator("[role='dialog'], .modal, .store-locator, .store-locator__results")
       .first()
@@ -525,18 +558,21 @@ const setMyStoreByCityAndId = async (page, { city, storeId, name }) => {
       .catch(() => "");
     const snippet = modalText.replace(/\s+/g, " ").trim().slice(0, 400);
     throw new Error(
-      `StoreId not found in selector list: storeId=${storeId} city=${city} text="${snippet}"`
+      `City not found in store selector list: city=${city} text="${snippet}"`
     );
   }
 
-  const storeRow = storeButtonLocator
-    .locator("xpath=ancestor::*[self::li or self::div][1]")
-    .first();
+  const storeRow = matchingRowLocator.first();
   const chosenStoreText = (await storeRow.innerText().catch(() => ""))
     .replace(/\s+/g, " ")
     .trim();
   console.log(`[toysrus] chosenStoreText="${chosenStoreText}"`);
 
+  const storeButtonLocator = storeRow
+    .locator(
+      "button.js-select-store, button:has-text('Select Store'), button:has-text('Select')"
+    )
+    .first();
   await storeButtonLocator.scrollIntoViewIfNeeded().catch(() => {});
   try {
     await closeOverlays(page);
@@ -551,7 +587,7 @@ const setMyStoreByCityAndId = async (page, { city, storeId, name }) => {
   }
 
   console.log(
-    `[toysrus] store confirmed storeId=${storeId} name=${name ?? ""} city=${city}`
+    `[toysrus] store confirmed storeId=${storeId ?? ""} name=${name ?? ""} city=${city}`
   );
   await page.waitForTimeout(randomDelay());
 };
@@ -676,12 +712,15 @@ const extractProducts = async (page) =>
   });
 
 const runSingleStore = async ({ storeId, city, name, allowStoreFallback }) => {
-  if (!storeId) {
-    throw new Error("--store-id is required for single store runs");
-  }
   if (!city) {
     throw new Error("--city is required for single store runs");
   }
+
+  const citySlug = slugify(city) || "unknown-city";
+  const outputSlug = storeId
+    ? `${String(storeId)}-${citySlug}`
+    : citySlug;
+  const storeIdValue = storeId ? String(storeId) : null;
 
   const browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
@@ -742,14 +781,14 @@ const runSingleStore = async ({ storeId, city, name, allowStoreFallback }) => {
 
     console.log(`[toysrus] extracted=${rawProducts.length} unique=${products.length}`);
 
-    const outputDir = path.join("data", "toysrus", String(storeId));
+    const outputDir = path.join("data", "toysrus", outputSlug);
     await ensureDir(outputDir);
 
     await fs.promises.writeFile(
       path.join(outputDir, "data.json"),
       JSON.stringify(
         {
-          storeId: String(storeId),
+          storeId: storeIdValue,
           storeName: name ?? null,
           city,
           scrapedAt,
@@ -765,7 +804,7 @@ const runSingleStore = async ({ storeId, city, name, allowStoreFallback }) => {
       path.join(outputDir, "meta.json"),
       JSON.stringify(
         {
-          storeId: String(storeId),
+          storeId: storeIdValue,
           name: name ?? null,
           city,
           ts: scrapedAt,
@@ -790,7 +829,7 @@ const runSingleStore = async ({ storeId, city, name, allowStoreFallback }) => {
     ];
     const rows = products.map((product) =>
       [
-        String(storeId),
+        storeIdValue ?? "",
         name ?? "",
         city,
         product.title || "",
@@ -809,7 +848,7 @@ const runSingleStore = async ({ storeId, city, name, allowStoreFallback }) => {
       [header.join(","), ...rows].join("\n")
     );
   } catch (error) {
-    await dumpDebug(page, `${storeId}_step_failure`);
+    await dumpDebug(page, `${outputSlug}_step_failure`);
     throw error;
   } finally {
     await browser.close();
@@ -841,7 +880,9 @@ const scrapeStore = async () => {
   }
 
   if (!storeId) {
-    throw new Error("--store-id is required unless --all is provided");
+    if (!city) {
+      throw new Error("--city is required unless --all is provided");
+    }
   }
 
   const resolved = await resolveStoreInput({ storeId, city, name });
