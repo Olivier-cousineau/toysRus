@@ -50,9 +50,27 @@ const dumpDebug = async (page, tag) => {
   await fs.writeFile(`outputs/debug/${tag}.html`, html).catch(() => {});
 };
 
+const storeSources = [
+  "stores.json",
+  "toysrus_stores.json",
+  path.join("public", "toysrus", "stores.json")
+];
+
 const readStores = async () => {
-  const raw = await fs.readFile(path.join("stores.json"), "utf8");
-  return JSON.parse(raw);
+  for (const source of storeSources) {
+    try {
+      const raw = await fs.readFile(source, "utf8");
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return parsed;
+      }
+    } catch (error) {
+      if (error?.code !== "ENOENT") {
+        throw error;
+      }
+    }
+  }
+  return null;
 };
 
 const findStore = (stores, storeId) => {
@@ -61,6 +79,83 @@ const findStore = (stores, storeId) => {
   return stores.find(
     (store) => String(store.storeId).toLowerCase() === matchId
   );
+};
+
+const normalizeStoreText = (value) =>
+  String(value ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const buildStoreLabel = (store) => {
+  const city = normalizeStoreText(store?.city);
+  const province = normalizeStoreText(
+    store?.province ?? store?.state ?? store?.region
+  );
+  const name = normalizeStoreText(
+    store?.name ?? store?.storeName ?? store?.searchText
+  );
+  const parts = [];
+  if (city) parts.push(city);
+  if (province) parts.push(province);
+  if (!parts.length && name) parts.push(name);
+  return parts.length ? parts.join(", ") : null;
+};
+
+const resolveStoreInput = async ({ storeId, city, name }) => {
+  if (city) {
+    return {
+      storeId,
+      city,
+      name,
+      label: buildStoreLabel({ city, name }) ?? null,
+      usedFallback: false
+    };
+  }
+
+  const stores = await readStores();
+  if (!stores) {
+    console.warn("[toysrus] store list not found, using fallback city=unknown");
+    return {
+      storeId,
+      city: "unknown",
+      name: name ?? null,
+      label: buildStoreLabel({ city: "unknown", name }) ?? null,
+      usedFallback: true
+    };
+  }
+
+  const store = findStore(stores, storeId);
+  if (!store) {
+    console.warn("[toysrus] store-id not found, using fallback");
+    return {
+      storeId,
+      city: "unknown",
+      name: name ?? null,
+      label: buildStoreLabel({ city: "unknown", name }) ?? null,
+      usedFallback: true
+    };
+  }
+
+  const resolvedCity =
+    normalizeStoreText(store.city) ||
+    normalizeStoreText(store.province ?? store.state ?? store.region) ||
+    normalizeStoreText(
+      store.name ?? store.storeName ?? store.searchText ?? store.city
+    ) ||
+    "unknown";
+  const resolvedName =
+    name ??
+    normalizeStoreText(store.name ?? store.storeName ?? store.searchText) ??
+    null;
+  const label = buildStoreLabel(store) ?? resolvedName ?? resolvedCity;
+
+  return {
+    storeId,
+    city: resolvedCity,
+    name: resolvedName,
+    label,
+    usedFallback: !store.city
+  };
 };
 
 const parseArgs = () => {
@@ -435,9 +530,12 @@ const extractProducts = async (page) =>
     });
   });
 
-const runSingleStore = async ({ storeId, city, name }) => {
-  if (!storeId || !city) {
-    throw new Error("--store-id and --city are required for single store runs");
+const runSingleStore = async ({ storeId, city, name, allowStoreFallback }) => {
+  if (!storeId) {
+    throw new Error("--store-id is required for single store runs");
+  }
+  if (!city) {
+    throw new Error("--city is required for single store runs");
   }
 
   const browser = await chromium.launch({ headless: true });
@@ -447,7 +545,16 @@ const runSingleStore = async ({ storeId, city, name }) => {
     await page.goto(CLEARANCE_URL, { waitUntil: "domcontentloaded" });
     await closeOverlays(page);
 
-    await setMyStoreByCityAndId(page, { city, storeId, name });
+    try {
+      await setMyStoreByCityAndId(page, { city, storeId, name });
+    } catch (error) {
+      if (!allowStoreFallback) {
+        throw error;
+      }
+      console.warn(
+        `[toysrus] store selection failed with fallback city="${city}", continuing without store selection`
+      );
+    }
 
     await page.goto(CLEARANCE_URL, { waitUntil: "domcontentloaded" });
     await closeOverlays(page);
@@ -569,21 +676,36 @@ const scrapeStore = async () => {
 
   if (all) {
     const stores = await readStores();
+    if (!stores) {
+      throw new Error("Store list not found for --all runs");
+    }
     for (const store of stores) {
-      await runSingleStore({
+      const resolved = await resolveStoreInput({
         storeId: store.storeId,
         city: store.city,
-        name: store.name
+        name: store.name ?? store.storeName ?? store.searchText
+      });
+      await runSingleStore({
+        storeId: resolved.storeId,
+        city: resolved.city,
+        name: resolved.name ?? resolved.label,
+        allowStoreFallback: resolved.usedFallback
       });
     }
     return;
   }
 
-  if (!storeId || !city) {
-    throw new Error("--store-id and --city are required (or use --all)");
+  if (!storeId) {
+    throw new Error("--store-id is required unless --all is provided");
   }
 
-  await runSingleStore({ storeId, city, name });
+  const resolved = await resolveStoreInput({ storeId, city, name });
+  await runSingleStore({
+    storeId: resolved.storeId,
+    city: resolved.city,
+    name: resolved.name ?? resolved.label,
+    allowStoreFallback: resolved.usedFallback
+  });
 };
 
 scrapeStore().catch((error) => {
