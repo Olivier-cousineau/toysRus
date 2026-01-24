@@ -1,1 +1,200 @@
-[]
+[
+  {
+    "storeId": "2407",
+    "name": "Niagara Pen Centre",
+    "address": "221 Glendale Ave",
+    "city": "St. Catharine",
+    "province": "ON",
+    "postalCode": "L2T 2K9",
+    "country": "CA"
+  },
+  {
+    "storeId": "3502",
+    "name": "Brampton",
+    "address": "150 West Drive",
+    "city": "Brampton",
+    "province": "ON",
+    "postalCode": "L6T 4P9",
+    "country": "CA"
+  },
+  {
+    "storeId": "3503",
+    "name": "Hamilton",
+    "address": "970 Upper Wentworth St.",
+    "city": "Hamilton",
+    "province": "ON",
+    "postalCode": "L9A 4V8",
+    "country": "CA"
+  },
+  {
+    "storeId": "3506",
+    "name": "Sherway",
+    "address": "690 Evans Avenue",
+    "city": "Etobicoke",
+    "province": "ON",
+    "postalCode": "M9C 1A1",
+    "country": "CA"
+  },
+  {
+    "storeId": "3507",
+    "name": "Kitchener",
+    "address": "419 Fairway Road South",
+    "city": "Kitchener",
+    "province": "ON",
+    "postalCode": "N2C 1X4",
+    "country": "CA"
+  },
+  {
+    "storeId": "3508",
+    "name": "Whitby",
+    "address": "50 Thickson Rd. South",
+    "city": "Whitby",
+    "province": "ON",
+    "postalCode": "L1N 7T2",
+    "country": "CA"
+  },
+  {
+    "storeId": "3521",
+    "name": "South Edmonton",
+    "address": "3940 Gateway Blvd. Nw",
+    "city": "Edmonton",
+    "province": "AB",
+    "postalCode": "T6J 5H2",
+    "country": "CA"
+  },
+  {
+    "storeId": "3525",
+    "name": "Polo Park",
+    "address": "1445 Saint Matthews Ave.",
+    "city": "Winnipeg",
+    "province": "MB",
+    "postalCode": "R3G 0K7",
+    "country": "CA"
+  },
+  {
+    "storeId": "3526",
+    "name": "Kildonan",
+    "address": "1560 Regent Ave W",
+    "city": "Winnipeg",
+    "province": "MB",
+    "postalCode": "R2C 3B4",
+    "country": "CA"
+  },
+  {
+    "storeId": "3527",
+    "name": "Nepean",
+    "address": "1683 Merivale Road",
+    "city": "Ottawa",
+    "province": "ON",
+    "postalCode": "K2G 3K2",
+    "country": "CA"
+  },
+  {
+    "storeId": "3529",
+    "name": "Barrie",
+    "address": "555 Bayfield St.",
+    "city": "Barrie",
+    "province": "ON",
+    "postalCode": "L4M 4Z9",
+    "country": "CA"
+  },
+  {
+    "storeId": "3531",
+    "name": "St. Laurent",
+    "address": "1200 Saint Laurent",
+    "city": "Ottawa",
+    "province": "ON",
+    "postalCode": "K1K 3B8",
+    "country": "CA"
+  },
+  {
+    "storeId": "3535",
+    "name": "North Edmonton",
+    "address": "13029 97Th Street Nw",
+    "city": "Edmonton",
+    "province": "AB",
+    "postalCode": "T5E 4C4",
+    "country": "CA"
+  },
+  {
+    "storeId": "3536",
+    "name": "Kingston",
+    "address": "1020 Midland Avenue",
+    "city": "Kingston",
+    "province": "ON",
+    "postalCode": "K7P 2X9",
+    "country": "CA"
+  },
+  {
+    "storeId": "3538",
+    "name": "Saint-Bruno",
+    "address": "655 Boulevard Des Promenades",
+    "city": "Saint-Bruno",
+    "province": "QC",
+    "postalCode": "J3V 6A8",
+    "country": "CA"
+  },
+  {
+    "storeId": "3540",
+    "name": "Newmarket",
+    "address": "17600 Yonge Street",
+    "city": "Newmarket",
+    "province": "ON",
+    "postalCode": "L3Y 4Z1",
+    "country": "CA"
+  },
+  {
+    "storeId": "3543",
+    "name": "Lethbridge",
+    "address": "225 1St Avenue South",
+    "city": "Lethbridge",
+    "province": "AB",
+    "postalCode": "T1J 4P2",
+    "country": "CA"
+  },
+  {
+    "storeId": "3544",
+    "name": "Saskatoon",
+    "address": "300 Idylwild South",
+    "city": "Saskatoon",
+    "province": "SK",
+    "postalCode": "S7M 5T4",
+    "country": "CA"
+  },
+  {
+    "storeId": "3545",
+    "name": "Regina",
+    "address": "730 Albert Street",
+    "city": "Regina",
+    "province": "SK",
+    "postalCode": "S4R 2P5",
+    "country": "CA"
+  },
+  {
+    "storeId": "3555",
+    "name": "St. John's",
+    "address": "58 Kenmount Road",
+    "city": "St. John's",
+    "province": "NL",
+    "postalCode": "A1B 1W2",
+    "country": "CA"
+  },
+  {
+    "storeId": "3561",
+    "name": "Sarnia",
+    "address": "1380 London Road",
+    "city": "Sarnia",
+    "province": "ON",
+    "postalCode": "N7S 1P8",
+    "country": "CA"
+  },
+  {
+    "storeId": "3574",
+    "name": "Vaughan Mills",
+    "address": "Unit C2",
+    "city": "Vaughan",
+    "province": "ON",
+    "postalCode": "L4K 5W4",
+    "country": "CA"
+  }
+]
