@@ -146,13 +146,22 @@ const buildStoreLabel = (store) => {
   return parts.length ? parts.join(", ") : null;
 };
 
-const resolveStoreInput = async ({ storeId, city, name, postalCode }) => {
+const resolveStoreInput = async ({
+  storeId,
+  city,
+  name,
+  postalCode,
+  latitude,
+  longitude
+}) => {
   if (city) {
     return {
       storeId,
       city,
       name,
       postalCode: postalCode ?? null,
+      latitude: latitude ?? null,
+      longitude: longitude ?? null,
       label: buildStoreLabel({ city, name }) ?? null,
       usedFallback: false
     };
@@ -166,6 +175,8 @@ const resolveStoreInput = async ({ storeId, city, name, postalCode }) => {
       city: "unknown",
       name: name ?? null,
       postalCode: postalCode ?? null,
+      latitude: latitude ?? null,
+      longitude: longitude ?? null,
       label: buildStoreLabel({ city: "unknown", name }) ?? null,
       usedFallback: true
     };
@@ -179,6 +190,8 @@ const resolveStoreInput = async ({ storeId, city, name, postalCode }) => {
       city: "unknown",
       name: name ?? null,
       postalCode: postalCode ?? null,
+      latitude: latitude ?? null,
+      longitude: longitude ?? null,
       label: buildStoreLabel({ city: "unknown", name }) ?? null,
       usedFallback: true
     };
@@ -201,22 +214,48 @@ const resolveStoreInput = async ({ storeId, city, name, postalCode }) => {
     storeId,
     city: resolvedCity,
     name: resolvedName,
-    postalCode: normalizeStoreText(store.postalCode ?? store.postal ?? store.zip) || null,
+    postalCode:
+      normalizeStoreText(store.postalCode ?? store.postal ?? store.zip) || null,
+    latitude:
+      store.latitude ?? store.lat ?? store.Latitude ?? store.Lat ?? null,
+    longitude:
+      store.longitude ?? store.lng ?? store.Longitude ?? store.Lng ?? null,
     label,
     usedFallback: !store.city
   };
 };
 
+const stripHtml = (value) =>
+  decodeHtmlEntities(String(value ?? "").replace(/<[^>]+>/g, " "));
+
 const parseStoreCardsFromHtml = (html) => {
   if (!html) return [];
   const cards = [];
-  const cardRegex =
-    /<div[^>]*class="[^"]*(?:store-details|b-locator_card)[^"]*"[^>]*>[\s\S]*?<\/div>/gi;
-  const matches = html.match(cardRegex) || [];
+  const selectors = [
+    "store-details",
+    "b-locator_card",
+    "store-locator__store",
+    "js-storelocator-store"
+  ];
+  const classPattern = selectors.join("|");
+  const cardRegex = new RegExp(
+    `<(?:div|li|article|section)[^>]*class="[^"]*(?:${classPattern})[^"]*"[^>]*>[\\s\\S]*?<\\/` +
+      "(?:div|li|article|section)>",
+    "gi"
+  );
+  const dataIdRegex =
+    /<(?:div|li|article|section)[^>]*(?:data-store-id|data-id)=["'][^"']+["'][^>]*>[\s\S]*?<\/(?:div|li|article|section)>/gi;
+  const matches = [...(html.match(cardRegex) || []), ...(html.match(dataIdRegex) || [])];
+  const seenBlocks = new Set();
 
   for (const block of matches) {
-    const openingTag = block.match(/<div[^>]*>/i)?.[0] ?? block;
+    if (seenBlocks.has(block)) {
+      continue;
+    }
+    seenBlocks.add(block);
+    const openingTag = block.match(/<[^>]+>/i)?.[0] ?? block;
     const dataStoreIdRaw = extractAttribute(openingTag, "data-store-id");
+    const dataIdRaw = extractAttribute(openingTag, "data-id");
     const dataStoreInfoRaw =
       extractAttribute(openingTag, "data-store-info") ||
       extractAttribute(block, "data-store-info");
@@ -233,6 +272,7 @@ const parseStoreCardsFromHtml = (html) => {
 
     const storeId =
       dataStoreIdRaw ||
+      dataIdRaw ||
       parsedInfo?.ID ||
       parsedInfo?.id ||
       parsedInfo?.storeId ||
@@ -249,6 +289,8 @@ const parseStoreCardsFromHtml = (html) => {
       parsedInfo?.storeName ||
       parsedInfo?.StoreName ||
       null;
+    const textContent = stripHtml(block).replace(/\s+/g, " ").trim();
+    const textIdMatch = textContent.match(/store\s*(?:id|#)?\s*(\d{3,6})/i);
 
     const selectUrl =
       extractAttribute(block, "data-select-store-url") ||
@@ -257,9 +299,13 @@ const parseStoreCardsFromHtml = (html) => {
       null;
 
     cards.push({
-      storeId: storeId ? String(storeId).trim() : null,
-      city: normalizeStoreText(city),
-      name: normalizeStoreText(name),
+      storeId: storeId
+        ? String(storeId).trim()
+        : textIdMatch
+          ? textIdMatch[1]
+          : null,
+      city: normalizeStoreText(city) || normalizeStoreText(textContent),
+      name: normalizeStoreText(name) || normalizeStoreText(textContent),
       selectUrl: selectUrl ? decodeHtmlEntities(selectUrl) : null,
       cardHtml: block
     });
@@ -269,10 +315,16 @@ const parseStoreCardsFromHtml = (html) => {
 };
 
 const findLoadMoreActionUrl = (html) => {
-  const match = html?.match(
-    /button[^>]*js-storelocator-loadmore[^>]*data-action-url=["']([^"']+)["']/i
+  const dataActionMatch = html?.match(
+    /(button|a)[^>]*js-storelocator-loadmore[^>]*(?:data-action-url|data-action)=["']([^"']+)["']/i
   );
-  return match ? decodeHtmlEntities(match[1]) : null;
+  if (dataActionMatch) {
+    return decodeHtmlEntities(dataActionMatch[2]);
+  }
+  const hrefMatch = html?.match(
+    /(button|a)[^>]*js-storelocator-loadmore[^>]*href=["']([^"']+)["']/i
+  );
+  return hrefMatch ? decodeHtmlEntities(hrefMatch[2]) : null;
 };
 
 const parseArgs = () => {
@@ -288,6 +340,9 @@ const parseArgs = () => {
     storeId: getArg("--store-id") || getArg("--storeId"),
     city: getArg("--city"),
     name: getArg("--name"),
+    postalCode: getArg("--postal") || getArg("--postalCode"),
+    latitude: getArg("--lat") || getArg("--latitude"),
+    longitude: getArg("--lng") || getArg("--longitude"),
     all: args.includes("--all"),
     limitStores: limitStoresRaw ? Number(limitStoresRaw) : null
   };
@@ -768,21 +823,40 @@ const selectStoreCardById = async (page, storeId) => {
 
 const fetchStoreLocatorHtml = async (page, url) => {
   const response = await page.request.get(url);
+  const finalUrl = response.url();
+  console.warn(
+    `[toysrus] store locator response status=${response.status()} url=${finalUrl}`
+  );
   if (!response.ok()) {
     throw new Error(
       `[toysrus] store locator request failed status=${response.status()}`
     );
   }
-  return response.text();
+  const html = await response.text();
+  await fs.promises
+    .writeFile("debug_storefindstores.html", html)
+    .catch(() => {});
+  console.warn(
+    `[toysrus] store locator response preview="${html.slice(0, 500)}"`
+  );
+  return html;
 };
 
 const requestStoreCardsUntilFound = async (
   page,
   { baseUrl, actionUrl, storeId, maxPages = 8 }
 ) => {
+  const visibleStores = [];
   let currentUrl = actionUrl;
   let html = await fetchStoreLocatorHtml(page, currentUrl);
   let cards = parseStoreCardsFromHtml(html);
+  visibleStores.push({
+    page: 1,
+    stores: cards.map((card) => ({
+      id: card.storeId,
+      label: card.city || card.name || null
+    }))
+  });
   let loadMoreUrl = findLoadMoreActionUrl(html);
 
   const normalizedTarget = storeId ? String(storeId).trim().toLowerCase() : null;
@@ -804,12 +878,20 @@ const requestStoreCardsUntilFound = async (
     found = matchCard();
     loadMoreUrl = findLoadMoreActionUrl(html);
     pageCount += 1;
+    visibleStores.push({
+      page: pageCount + 1,
+      stores: nextCards.map((card) => ({
+        id: card.storeId,
+        label: card.city || card.name || null
+      }))
+    });
   }
 
   return {
     found,
     cards,
-    pagesFetched: pageCount + 1
+    pagesFetched: pageCount + 1,
+    visibleStores
   };
 };
 
@@ -922,7 +1004,20 @@ const validateSelectedStore = async (page, storeId) => {
   return matches;
 };
 
-const setMyStoreByCityAndId = async (page, { city, storeId, name, postalCode }) => {
+const setMyStoreByCityAndId = async (
+  page,
+  { city, storeId, name, postalCode, latitude, longitude }
+) => {
+  if (!postalCode && !(latitude && longitude)) {
+    throw new Error(
+      "postalCode ou lat/lng requis pour stores-findstores; fournissez --postal ou --lat/--lng"
+    );
+  }
+  const locationInput = postalCode
+    ? postalCode
+    : latitude && longitude
+      ? `${latitude}, ${longitude}`
+      : null;
   const attemptSelection = async (attempt, locationInput, locationLabel) => {
     try {
       const storeLocatorInput = page
@@ -1017,20 +1112,22 @@ const setMyStoreByCityAndId = async (page, { city, storeId, name, postalCode }) 
 
     const baseUrl = page.url();
     const actionUrl = new URL(action, baseUrl).toString();
-    const { found: storeMatch, pagesFetched } = await requestStoreCardsUntilFound(
-      page,
-      {
-        baseUrl,
-        actionUrl,
-        storeId: normalizedStoreId,
-        maxPages: Number(process.env.MAX_STORE_PAGES) || 8
-      }
-    );
+    const {
+      found: storeMatch,
+      pagesFetched,
+      visibleStores
+    } = await requestStoreCardsUntilFound(page, {
+      baseUrl,
+      actionUrl,
+      storeId: normalizedStoreId,
+      maxPages: Number(process.env.MAX_STORE_PAGES) || 15
+    });
 
     if (!storeMatch) {
       console.warn(
         `[toysrus] storeId=${normalizedStoreId} not found after ${pagesFetched} page(s)`
       );
+      console.warn(`[toysrus] visibleStores=${JSON.stringify(visibleStores)}`);
       return null;
     }
 
@@ -1074,13 +1171,8 @@ const setMyStoreByCityAndId = async (page, { city, storeId, name, postalCode }) 
 
   for (let attempt = 1; attempt <= 2; attempt += 1) {
     const locations = [];
-    if (city && normalizeStoreText(city)) {
-      locations.push({ value: city, label: "city" });
-    }
-    if (postalCode && normalizeStoreText(postalCode)) {
-      if (!locations.some((entry) => normalizeStoreText(entry.value) === normalizeStoreText(postalCode))) {
-        locations.push({ value: postalCode, label: "postalCode" });
-      }
+    if (locationInput && normalizeStoreText(locationInput)) {
+      locations.push({ value: locationInput, label: postalCode ? "postalCode" : "latlng" });
     }
     if (!locations.length) {
       locations.push({ value: null, label: "location" });
@@ -1102,7 +1194,8 @@ const setMyStoreByCityAndId = async (page, { city, storeId, name, postalCode }) 
       const summaries = await getVisibleStoreSummaries(page, 20);
       throw new Error(
         `storeId introuvable dans les résultats: storeId=${storeId ?? ""} city=${city ?? ""} ` +
-          `postalCode=${postalCode ?? ""} visibleStores=${JSON.stringify(summaries)}`
+          `postalCode=${postalCode ?? ""} lat=${latitude ?? ""} lng=${longitude ?? ""} ` +
+          `visibleStores=${JSON.stringify(summaries)}`
       );
     }
 
@@ -1242,9 +1335,25 @@ const extractProducts = async (page) =>
     });
   });
 
-const runSingleStore = async ({ storeId, city, name, postalCode, allowStoreFallback }) => {
-  if (!storeId && !city && !postalCode) {
-    throw new Error("--store-id, --city, or --postalCode is required for single store runs");
+const runSingleStore = async ({
+  storeId,
+  city,
+  name,
+  postalCode,
+  latitude,
+  longitude,
+  allowStoreFallback
+}) => {
+  if (!storeId && !city && !postalCode && !(latitude && longitude)) {
+    throw new Error(
+      "--store-id, --city, --postalCode, or --lat/--lng is required for single store runs"
+    );
+  }
+
+  if (!postalCode && !(latitude && longitude)) {
+    throw new Error(
+      "postalCode ou lat/lng requis pour stores-findstores; fournissez --postal ou --lat/--lng"
+    );
   }
 
   const citySlug = slugify(city ?? postalCode) || "unknown-city";
@@ -1267,7 +1376,14 @@ const runSingleStore = async ({ storeId, city, name, postalCode, allowStoreFallb
     await closeOverlays(page);
 
     try {
-      await setMyStoreByCityAndId(page, { city, storeId, name, postalCode });
+      await setMyStoreByCityAndId(page, {
+        city,
+        storeId,
+        name,
+        postalCode,
+        latitude,
+        longitude
+      });
     } catch (error) {
       if (!allowStoreFallback) {
         throw error;
@@ -1403,13 +1519,17 @@ const runStoreBatch = async ({ stores, concurrency }) => {
         storeId: store.storeId,
         city: store.city,
         name: store.name ?? store.storeName ?? store.searchText,
-        postalCode: store.postalCode ?? store.postal ?? store.zip
+        postalCode: store.postalCode ?? store.postal ?? store.zip,
+        latitude: store.latitude ?? store.lat ?? store.Latitude ?? store.Lat ?? null,
+        longitude: store.longitude ?? store.lng ?? store.Longitude ?? store.Lng ?? null
       });
       await runSingleStore({
         storeId: resolved.storeId,
         city: resolved.city,
         name: resolved.name ?? resolved.label,
         postalCode: resolved.postalCode,
+        latitude: resolved.latitude,
+        longitude: resolved.longitude,
         allowStoreFallback: resolved.usedFallback
       });
     }
@@ -1419,19 +1539,29 @@ const runStoreBatch = async ({ stores, concurrency }) => {
 };
 
 const scrapeStore = async () => {
-  const { storeId, city, name, all, limitStores } = parseArgs();
+  const { storeId, city, name, postalCode, latitude, longitude, all, limitStores } =
+    parseArgs();
 
   if (limitStores !== null && (!Number.isFinite(limitStores) || limitStores <= 0)) {
     throw new Error("--limit-stores must be a positive number");
   }
 
   if (storeId) {
-    const resolved = await resolveStoreInput({ storeId, city, name });
+    const resolved = await resolveStoreInput({
+      storeId,
+      city,
+      name,
+      postalCode,
+      latitude,
+      longitude
+    });
     await runSingleStore({
       storeId: resolved.storeId,
       city: resolved.city,
       name: resolved.name ?? resolved.label,
       postalCode: resolved.postalCode,
+      latitude: resolved.latitude,
+      longitude: resolved.longitude,
       allowStoreFallback: resolved.usedFallback
     });
     return;
