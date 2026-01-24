@@ -488,9 +488,9 @@ const logLocatorDiagnostics = async (page, locator, label) => {
   return { boundingBox, viewport, isIntersectingViewport };
 };
 
-const clickLocatorWithFallback = async (page, locator) => {
+const safeClick = async (page, locator, label) => {
   await locator.scrollIntoViewIfNeeded().catch(() => {});
-  const diagnostics = await logLocatorDiagnostics(page, locator, "search button");
+  const diagnostics = await logLocatorDiagnostics(page, locator, label);
 
   if (diagnostics.isIntersectingViewport === false) {
     const handle = await locator.elementHandle();
@@ -504,19 +504,26 @@ const clickLocatorWithFallback = async (page, locator) => {
   }
 
   try {
-    await locator.click({ trial: true, timeout: 5000 });
     await locator.click({ timeout: 15000 });
     return true;
   } catch (error) {
-    console.warn("[toysrus] locator click failed, attempting fallback", error);
+    console.warn(`[toysrus] ${label} click failed, retrying with force`, error);
   }
 
   try {
-    await locator.dispatchEvent("click");
+    await locator.click({ timeout: 15000, force: true });
     return true;
   } catch (error) {
-    console.warn("[toysrus] dispatchEvent click failed", error);
+    console.warn(`[toysrus] ${label} force click failed, retrying with evaluate`, error);
   }
+
+  try {
+    await locator.evaluate((element) => element.click());
+    return true;
+  } catch (error) {
+    console.warn(`[toysrus] ${label} evaluate click failed`, error);
+  }
+
   return false;
 };
 
@@ -534,182 +541,265 @@ const clickStoreSearchButton = async (page, modalLocator) => {
     await scrollContainerToRevealHandle(page, containerHandle, buttonHandle);
   }
 
-  await buttonLocator.scrollIntoViewIfNeeded().catch(() => {});
-  const clicked = await clickLocatorWithFallback(page, buttonLocator);
+  const clicked = await safeClick(page, buttonLocator, "store search button");
   if (!clicked) {
     throw new Error("Failed to click store search button.");
   }
 };
 
-const setMyStoreByCityAndId = async (page, { city, storeId, name }) => {
+const waitForResults = async (page) => {
+  const resultsLocator = page.locator(
+    "#storeSelectorModal .store-details, #storeSelectorModal .js-card-body.b-locator_card"
+  );
+  await resultsLocator.first().waitFor({ state: "attached", timeout: 30000 });
+  const count = await resultsLocator.count();
+  console.warn(`[toysrus] store locator results count=${count}`);
+  return { resultsLocator, count };
+};
+
+const decodeStoreInfo = async (page, value) => {
+  if (!value) return null;
+  const decoded = await page.evaluate((rawValue) => {
+    const textarea = document.createElement("textarea");
+    textarea.innerHTML = rawValue;
+    return textarea.value;
+  }, value);
   try {
-    const storeLocatorInput = page
-      .locator(STORE_SELECTOR_INPUT)
-      .first();
-    let storeLocatorReady = false;
+    return JSON.parse(decoded);
+  } catch {
+    return null;
+  }
+};
 
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-      await closeOverlays(page);
-      if (!(await isStoreSelectorOpen(page))) {
-        await openStoreSelector(page);
-      } else {
-        console.log("[toysrus] store selector already open; skipping Find Stores click");
+const selectStoreCardById = async (page, storeId) => {
+  if (!storeId) return null;
+  const normalizedTarget = String(storeId).trim().toLowerCase();
+  const modal = page.locator("#storeSelectorModal");
+
+  const directLocator = modal.locator(
+    `.store-details[data-store-id="${normalizedTarget}"], .store-details[data-store-id="${storeId}"]`
+  );
+  if (await directLocator.first().count()) {
+    return directLocator.first();
+  }
+
+  const cardLocator = modal.locator(".store-details, .js-card-body.b-locator_card");
+  const cardCount = await cardLocator.count();
+  for (let i = 0; i < cardCount; i += 1) {
+    const card = cardLocator.nth(i);
+    const dataStoreId = await card.getAttribute("data-store-id").catch(() => null);
+    if (dataStoreId && String(dataStoreId).trim().toLowerCase() === normalizedTarget) {
+      return card;
+    }
+    const infoRaw = await card.getAttribute("data-store-info").catch(() => null);
+    if (infoRaw) {
+      const info = await decodeStoreInfo(page, infoRaw);
+      const rawId = info?.ID ?? info?.id ?? info?.storeId;
+      if (rawId && String(rawId).trim().toLowerCase() === normalizedTarget) {
+        return card;
       }
-      await closeOverlays(page);
+    }
+    const text = await card.innerText().catch(() => "");
+    if (text && text.toLowerCase().includes(normalizedTarget)) {
+      return card;
+    }
+  }
 
+  return null;
+};
+
+const clickLoadMoreUntilStoreFound = async (page, storeId) => {
+  const loadMoreLocator = page.locator("#storeSelectorModal button.js-storelocator-loadmore");
+  const maxIterations = 15;
+  let iteration = 0;
+
+  for (; iteration < maxIterations; iteration += 1) {
+    const match = await selectStoreCardById(page, storeId);
+    if (match) {
+      console.warn(`[toysrus] store card found after ${iteration} load more iterations`);
+      return match;
+    }
+
+    const isVisible = await loadMoreLocator.first().isVisible().catch(() => false);
+    if (!isVisible) {
+      console.warn("[toysrus] load more button not visible; stopping");
+      break;
+    }
+
+    console.warn(`[toysrus] load more iteration=${iteration + 1}`);
+    const clicked = await safeClick(page, loadMoreLocator.first(), "load more stores");
+    if (!clicked) {
+      console.warn("[toysrus] load more click failed; stopping");
+      break;
+    }
+    await page.waitForTimeout(randomDelay(600, 900));
+  }
+
+  console.warn(`[toysrus] store not found after ${iteration} load more iterations`);
+  return null;
+};
+
+const validateSelectedStore = async (page, storeId) => {
+  if (!storeId) return false;
+  const normalizedTarget = String(storeId).trim().toLowerCase();
+  const candidateLocator = page.locator(
+    "header [data-store-info], .js-selected-my-home-store [data-store-info], .js-selected-my-home-store[data-store-info]"
+  );
+  const fallbackLocator = page.locator("[data-store-info]");
+  const locator = (await candidateLocator.count()) ? candidateLocator : fallbackLocator;
+  const matches = await locator.evaluateAll((elements, targetId) => {
+    return elements.some((element) => {
+      const raw = element.getAttribute("data-store-info");
+      if (!raw) return false;
       try {
-        await forceStoreSelectorVisible(page);
-        await storeLocatorInput.waitFor({ state: "attached", timeout: 15000 });
-        storeLocatorReady = true;
-        break;
-      } catch (error) {
-        await forceStoreSelectorVisible(page);
-        if (attempt === 2) {
-          throw error;
+        const textarea = document.createElement("textarea");
+        textarea.innerHTML = raw;
+        const decoded = textarea.value;
+        const parsed = JSON.parse(decoded);
+        const parsedId = parsed?.ID ?? parsed?.id ?? parsed?.storeId;
+        if (parsedId && String(parsedId).trim().toLowerCase() === targetId) {
+          return true;
+        }
+      } catch {
+        // fall through
+      }
+      return raw.toLowerCase().includes(targetId);
+    });
+  }, normalizedTarget);
+  console.warn(`[toysrus] selected store validation result=${matches}`);
+  return matches;
+};
+
+const setMyStoreByCityAndId = async (page, { city, storeId, name }) => {
+  const attemptSelection = async (attempt) => {
+    try {
+      const storeLocatorInput = page
+        .locator(STORE_SELECTOR_INPUT)
+        .first();
+      let storeLocatorReady = false;
+
+      for (let openAttempt = 0; openAttempt < 3; openAttempt += 1) {
+        await closeOverlays(page);
+        if (!(await isStoreSelectorOpen(page))) {
+          await openStoreSelector(page);
+        } else {
+          console.log("[toysrus] store selector already open; skipping Find Stores click");
+        }
+        await closeOverlays(page);
+
+        try {
+          await forceStoreSelectorVisible(page);
+          await storeLocatorInput.waitFor({ state: "attached", timeout: 15000 });
+          storeLocatorReady = true;
+          break;
+        } catch (error) {
+          await forceStoreSelectorVisible(page);
+          if (openAttempt === 2) {
+            throw error;
+          }
         }
       }
+
+      if (!storeLocatorReady) {
+        throw new Error("Store locator input not ready after retries.");
+      }
+
+      if (city && normalizeStoreText(city)) {
+        await fillStoreLocatorInput(page, storeLocatorInput, city);
+        await storeLocatorInput.press("Enter").catch(() => {});
+
+        const autoCompleteSuggestion = page
+          .locator(".pac-container .pac-item")
+          .first();
+        if (await autoCompleteSuggestion.isVisible().catch(() => false)) {
+          await safeClick(page, autoCompleteSuggestion, "autocomplete suggestion");
+        }
+      } else {
+        console.warn("[toysrus] no city provided; attempting store search without location input");
+      }
+
+      const modal = page.locator("#storeSelectorModal");
+      await modal.waitFor({ state: "visible", timeout: 10000 });
+      await clickStoreSearchButton(page, modal);
+      await page.waitForTimeout(100);
+    } catch (error) {
+      await dumpStoreSelectorDebug(page);
+      throw error;
     }
 
-    if (!storeLocatorReady) {
-      throw new Error("Store locator input not ready after retries.");
+    await page.waitForTimeout(randomDelay());
+    await setRadiusTo100(page);
+    await closeOverlays(page);
+
+    await waitForResults(page);
+
+    const normalizedStoreId = storeId ? String(storeId).trim() : null;
+    if (!normalizedStoreId) {
+      throw new Error("storeId is required for store selection.");
     }
 
-    if (city && normalizeStoreText(city)) {
-      await fillStoreLocatorInput(page, storeLocatorInput, city);
-      await storeLocatorInput.press("Enter").catch(() => {});
+    let storeCard = await selectStoreCardById(page, normalizedStoreId);
+    if (!storeCard) {
+      storeCard = await clickLoadMoreUntilStoreFound(page, normalizedStoreId);
+    }
 
-      const autoCompleteSuggestion = page
-        .locator(".pac-container .pac-item")
-        .first();
-      if (await autoCompleteSuggestion.isVisible().catch(() => false)) {
-        await autoCompleteSuggestion.click({ timeout: 5000 }).catch(() => {});
+    if (!storeCard) {
+      await dumpStoreListDebug(page);
+      throw new Error(
+        `Store not found in selector list: city=${city ?? ""} storeId=${storeId ?? ""}`
+      );
+    }
+
+    console.log(
+      `[toysrus] matched store selector storeId=${normalizedStoreId} attempt=${attempt}`
+    );
+
+    await storeCard.scrollIntoViewIfNeeded().catch(() => {});
+    const storeSelectButton = storeCard
+      .locator("button.js-select-store")
+      .first();
+    if (await storeSelectButton.count()) {
+      const clicked = await safeClick(page, storeSelectButton, "store select button");
+      if (!clicked) {
+        throw new Error("Failed to click store select button.");
       }
     } else {
-      console.warn("[toysrus] no city provided; attempting store search without location input");
-    }
-
-    const modal = page.locator("#storeSelectorModal");
-    await modal.waitFor({ state: "visible", timeout: 10000 });
-    await clickStoreSearchButton(page, modal);
-    await page.waitForTimeout(100);
-  } catch (error) {
-    await dumpStoreSelectorDebug(page);
-    throw error;
-  }
-
-  await page.waitForTimeout(randomDelay());
-  await setRadiusTo100(page);
-  await closeOverlays(page);
-
-  const storeCardLocator = page.locator("#storeSelectorModal .js-card-body.b-locator_card");
-  await storeCardLocator.first().waitFor({ state: "attached", timeout: 30000 });
-
-  const targetCity = city ? normalizeCity(city) : null;
-  const targetStoreId = storeId ? String(storeId).trim().toLowerCase() : null;
-  const cardCount = await storeCardLocator.count();
-  let cityMatch = null;
-  let cityMatchInfo = null;
-  let idMatch = null;
-  let idMatchInfo = null;
-
-  for (let i = 0; i < cardCount; i += 1) {
-    const card = storeCardLocator.nth(i);
-    const infoRaw = await card.getAttribute("data-store-info").catch(() => null);
-    if (!infoRaw) continue;
-
-    const decoded = await page.evaluate((value) => {
-      const textarea = document.createElement("textarea");
-      textarea.innerHTML = value;
-      return textarea.value;
-    }, infoRaw);
-
-    let info;
-    try {
-      info = JSON.parse(decoded);
-    } catch {
-      continue;
-    }
-
-    const rawId = info?.ID ?? info?.id ?? info?.storeId;
-    const cardId = await card.getAttribute("id").catch(() => null);
-    const resolvedId = String(rawId ?? cardId ?? "").trim();
-    if (!resolvedId) continue;
-    const normalizedId = resolvedId.toLowerCase();
-
-    if (targetStoreId && normalizedId === targetStoreId && !idMatch) {
-      idMatch = resolvedId;
-      idMatchInfo = info;
-    }
-
-    const candidateCity = normalizeCity(info?.city || info?.name || "");
-    if (targetCity && candidateCity) {
-      if (
-        candidateCity.includes(targetCity) ||
-        targetCity.includes(candidateCity)
-      ) {
-        cityMatch = resolvedId;
-        cityMatchInfo = info;
-        break;
+      const clicked = await safeClick(page, storeCard, "store card");
+      if (!clicked) {
+        throw new Error("Failed to click store card.");
       }
     }
-  }
 
-  const matchedStoreId = cityMatch ?? idMatch;
-  const matchedInfo = cityMatchInfo ?? idMatchInfo;
-
-  if (!matchedStoreId) {
-    const maxLogs = Math.min(cardCount, 20);
-    if (maxLogs) {
-      console.warn("[toysrus] store selector list (first 20):");
-    }
-    for (let i = 0; i < maxLogs; i += 1) {
-      const card = storeCardLocator.nth(i);
-      const infoRaw = await card.getAttribute("data-store-info").catch(() => null);
-      if (!infoRaw) continue;
-      const decoded = await page.evaluate((value) => {
-        const textarea = document.createElement("textarea");
-        textarea.innerHTML = value;
-        return textarea.value;
-      }, infoRaw);
-      try {
-        const info = JSON.parse(decoded);
-        console.warn(
-          `[toysrus] store ${i + 1}: id=${info?.ID ?? info?.id ?? ""} city=${
-            info?.city ?? info?.name ?? ""
-          }`
-        );
-      } catch {
-        console.warn(`[toysrus] store ${i + 1}: data-store-info parse failed`);
+    const confirmButton = page
+      .locator("#storeSelectorModal button:has-text('Confirm as My Store')")
+      .first();
+    if (await confirmButton.isVisible().catch(() => false)) {
+      const clicked = await safeClick(page, confirmButton, "confirm store button");
+      if (!clicked) {
+        throw new Error("Failed to click confirm store button.");
       }
     }
-    await dumpStoreListDebug(page);
-    throw new Error(
-      `Store not found in selector list: city=${city ?? ""} storeId=${storeId ?? ""}`
+
+    console.log(
+      `[toysrus] store confirmed storeId=${storeId ?? ""} name=${name ?? ""} city=${city}`
     );
+    await page.waitForTimeout(randomDelay());
+  };
+
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    await attemptSelection(attempt);
+    const validated = await validateSelectedStore(page, storeId);
+    if (validated) {
+      return;
+    }
+    console.warn(`[toysrus] store validation failed on attempt=${attempt}`);
+    if (attempt === 1) {
+      await openStoreSelector(page).catch(() => {});
+      await page.waitForTimeout(randomShortDelay());
+    }
   }
 
-  console.log(
-    `[toysrus] matched store selector storeId=${matchedStoreId} city=${
-      matchedInfo?.city ?? matchedInfo?.name ?? ""
-    }`
-  );
-
-  const storeButtonLocator = page
-    .locator(`button.js-select-store[value="${matchedStoreId}"]`)
-    .first();
-  await storeButtonLocator.scrollIntoViewIfNeeded().catch(() => {});
-  try {
-    await closeOverlays(page);
-    await storeButtonLocator.click({ timeout: 15000 });
-  } catch (error) {
-    console.warn("[toysrus] store select click failed, retrying", error);
-    await storeButtonLocator.click({ timeout: 15000, force: true });
-  }
-
-  console.log(
-    `[toysrus] store confirmed storeId=${storeId ?? ""} name=${name ?? ""} city=${city}`
-  );
-  await page.waitForTimeout(randomDelay());
+  throw new Error(`Store selection validation failed for storeId=${storeId}`);
 };
 
 const waitForProductGrid = async (page) => {
