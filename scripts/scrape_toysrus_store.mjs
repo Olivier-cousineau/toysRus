@@ -489,32 +489,48 @@ const setMyStoreByCityAndId = async (page, { city, storeId, name }) => {
     }
 
     const modal = page.locator("#storeSelectorModal");
-    await modal.waitFor({ state: "visible", timeout: 15000 });
-
-    const modalSearchButton = modal
-      .locator("button")
-      .filter({ hasText: /Search|Find|Find Stores/i })
-      .first();
-
-    await modalSearchButton.waitFor({ state: "visible", timeout: 15000 });
-
-    try {
-      await modalSearchButton.scrollIntoViewIfNeeded();
-      await page.waitForTimeout(100);
-      await modalSearchButton.click({ timeout: 8000 });
-    } catch (error) {
-      try {
-        await modalSearchButton.scrollIntoViewIfNeeded();
-        await page.waitForTimeout(100);
-        await modalSearchButton.click({ force: true, timeout: 8000 });
-      } catch (secondaryError) {
-        const box = await modalSearchButton.boundingBox();
-        if (!box) throw secondaryError;
-        await page.mouse.click(
-          box.x + box.width / 2,
-          box.y + Math.min(10, box.height / 2)
-        );
+    await modal.waitFor({ state: "visible", timeout: 10000 });
+    const modalSearchResult = await modal.evaluate((root) => {
+      const scrollContainer = root.querySelector(".modal-body") || root;
+      scrollContainer.scrollTop = 0;
+      const buttons = Array.from(root.querySelectorAll("button"));
+      const target = buttons.find((button) =>
+        /search|find/i.test(button.textContent || "")
+      );
+      if (!target) {
+        return { found: false };
       }
+
+      const containerRect = scrollContainer.getBoundingClientRect();
+      const buttonRect = target.getBoundingClientRect();
+      if (buttonRect.top < containerRect.top || buttonRect.bottom > containerRect.bottom) {
+        scrollContainer.scrollTop += buttonRect.top - containerRect.top - 10;
+      }
+      target.scrollIntoView({ block: "center", inline: "nearest" });
+      target.click();
+
+      const rect = target.getBoundingClientRect();
+      const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
+      const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
+      const isIntersectingViewport =
+        rect.top >= 0 &&
+        rect.left >= 0 &&
+        rect.bottom <= viewportHeight &&
+        rect.right <= viewportWidth;
+
+      return {
+        found: true,
+        rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+        viewport: { width: viewportWidth, height: viewportHeight },
+        isIntersectingViewport,
+      };
+    });
+
+    if (modalSearchResult?.found) {
+      console.log("[toysrus] modal search button boundingBox", modalSearchResult.rect);
+      console.log("[toysrus] viewport size", modalSearchResult.viewport);
+      console.log("[toysrus] isIntersectingViewport", modalSearchResult.isIntersectingViewport);
+      await page.waitForTimeout(100);
     }
   } catch (error) {
     await dumpStoreSelectorDebug(page);
