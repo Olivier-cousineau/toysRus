@@ -489,59 +489,31 @@ const setMyStoreByCityAndId = async (page, { city, storeId, name }) => {
     }
 
     const modal = page.locator("#storeSelectorModal");
-    await modal.waitFor({ state: "visible", timeout: 10000 });
-    const modalSearchSelector = "button:has-text('Search'), button:has-text('Find')";
-    await modal.evaluate((el, selector) => {
-      const scrollContainer = el.querySelector(".modal-body") || el;
-      scrollContainer.scrollTop = 0;
-      const button = el.querySelector(selector);
-      if (!button) return;
-      const buttonRect = button.getBoundingClientRect();
-      const containerRect = scrollContainer.getBoundingClientRect();
-      if (buttonRect.top < containerRect.top || buttonRect.bottom > containerRect.bottom) {
-        scrollContainer.scrollTop += buttonRect.top - containerRect.top - 10;
-      }
-    }, modalSearchSelector);
+    await modal.waitFor({ state: "visible", timeout: 15000 });
 
     const modalSearchButton = modal
-      .locator(modalSearchSelector)
+      .locator("button")
+      .filter({ hasText: /Search|Find|Find Stores/i })
       .first();
-    if (await modalSearchButton.isVisible().catch(() => false)) {
-      await modalSearchButton.scrollIntoViewIfNeeded().catch(() => {});
-      await modalSearchButton.waitFor({ state: "visible", timeout: 10000 }).catch(() => {});
+
+    await modalSearchButton.waitFor({ state: "visible", timeout: 15000 });
+
+    try {
+      await modalSearchButton.scrollIntoViewIfNeeded();
       await page.waitForTimeout(100);
-
-      const buttonBox = await modalSearchButton.boundingBox().catch(() => null);
-      const viewportSize = page.viewportSize();
-      const isIntersectingViewport = await modalSearchButton
-        .evaluate((el) => {
-          const rect = el.getBoundingClientRect();
-          const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
-          const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
-          return (
-            rect.top >= 0 &&
-            rect.left >= 0 &&
-            rect.bottom <= viewportHeight &&
-            rect.right <= viewportWidth
-          );
-        })
-        .catch(() => null);
-
-      console.log("[toysrus] modal search button boundingBox", buttonBox);
-      console.log("[toysrus] viewport size", viewportSize);
-      console.log("[toysrus] isIntersectingViewport", isIntersectingViewport);
-
+      await modalSearchButton.click({ timeout: 8000 });
+    } catch (error) {
       try {
-        await modalSearchButton.click({ timeout: 10000 });
-      } catch (error) {
-        if (buttonBox) {
-          await page.mouse.click(
-            buttonBox.x + buttonBox.width / 2,
-            buttonBox.y + Math.min(10, buttonBox.height / 2)
-          );
-        }
-        await modalSearchButton.click({ force: true, timeout: 10000 }).catch(() => {});
-        await modalSearchButton.evaluate((el) => el.click()).catch(() => {});
+        await modalSearchButton.scrollIntoViewIfNeeded();
+        await page.waitForTimeout(100);
+        await modalSearchButton.click({ force: true, timeout: 8000 });
+      } catch (secondaryError) {
+        const box = await modalSearchButton.boundingBox();
+        if (!box) throw secondaryError;
+        await page.mouse.click(
+          box.x + box.width / 2,
+          box.y + Math.min(10, box.height / 2)
+        );
       }
     }
   } catch (error) {
