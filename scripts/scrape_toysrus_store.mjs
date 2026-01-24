@@ -3,7 +3,9 @@ import path from "path";
 import { chromium } from "playwright";
 
 const CLEARANCE_URL = "https://www.toysrus.ca/en/toysrus/CLEARANCE";
+const STORE_LOCATOR_ENDPOINT = "/en/stores-findstores";
 const MAX_LOADMORE_CLICKS = Number(process.env.MAX_LOADMORE_PRODUCTS) || 80;
+const STORE_CACHE_PATH = path.join("data", "toysrus_stores.json");
 
 const randomDelay = (minMs = 700, maxMs = 1200) =>
   Math.floor(Math.random() * (maxMs - minMs + 1)) + minMs;
@@ -62,6 +64,7 @@ const STORE_NAME_SELECTOR =
 const STORE_LOAD_MORE_SELECTOR = "button.js-storelocator-loadmore";
 
 const storeSources = [
+  STORE_CACHE_PATH,
   "stores.json",
   "toysrus_stores.json",
   path.join("public", "toysrus", "stores.json")
@@ -96,6 +99,11 @@ const normalizeStoreText = (value) =>
   String(value ?? "")
     .replace(/\s+/g, " ")
     .trim();
+
+const normalizePostalCode = (value) => {
+  const normalized = normalizeStoreText(value);
+  return normalized ? normalized.replace(/\s+/g, "").toUpperCase() : null;
+};
 
 const normalizeCoordinate = (value) => {
   if (value === null || value === undefined || value === "") {
@@ -162,7 +170,7 @@ const buildStoreLabel = (store) => {
 };
 
 const resolveStoreLocation = ({ postalCode, latitude, longitude, store }) => {
-  const normalizedPostal = normalizeStoreText(postalCode) || null;
+  const normalizedPostal = normalizePostalCode(postalCode);
   const normalizedLatitude = normalizeCoordinate(latitude);
   const normalizedLongitude = normalizeCoordinate(longitude);
   const hasArgsPostal = Boolean(normalizedPostal);
@@ -186,8 +194,9 @@ const resolveStoreLocation = ({ postalCode, latitude, longitude, store }) => {
     };
   }
 
-  const storePostal =
-    normalizeStoreText(store?.postalCode ?? store?.postal ?? store?.zip) || null;
+  const storePostal = normalizePostalCode(
+    store?.postalCode ?? store?.postal ?? store?.zip
+  );
   const storeLatitude = normalizeCoordinate(
     store?.latitude ?? store?.lat ?? store?.Latitude ?? store?.Lat ?? null
   );
@@ -387,7 +396,8 @@ const parseStoreCardsFromHtml = (html) => {
       city: normalizeStoreText(city) || normalizeStoreText(textContent),
       name: normalizeStoreText(name) || normalizeStoreText(textContent),
       selectUrl: selectUrl ? decodeHtmlEntities(selectUrl) : null,
-      cardHtml: block
+      cardHtml: block,
+      info: parsedInfo
     });
   }
 
@@ -407,6 +417,196 @@ const findLoadMoreActionUrl = (html) => {
   return hrefMatch ? decodeHtmlEntities(hrefMatch[2]) : null;
 };
 
+const buildStoresFindStoresUrl = ({
+  baseUrl,
+  page = 1,
+  batch = 10,
+  postalCode,
+  latitude,
+  longitude,
+  radius
+}) => {
+  const url = new URL(STORE_LOCATOR_ENDPOINT, baseUrl);
+  url.searchParams.set("batch", String(batch));
+  url.searchParams.set("page", String(page));
+  url.searchParams.set("showMap", "false");
+
+  const normalizedPostal = normalizePostalCode(postalCode);
+  if (normalizedPostal) {
+    url.searchParams.set("postalCode", normalizedPostal);
+  }
+
+  if (latitude !== null && latitude !== undefined && longitude !== null && longitude !== undefined) {
+    url.searchParams.set("lat", String(latitude));
+    url.searchParams.set("lng", String(longitude));
+  }
+
+  if (radius !== null && radius !== undefined && radius !== "") {
+    url.searchParams.set("radius", String(radius));
+  }
+
+  return url.toString();
+};
+
+const buildStoreEntryFromCard = (card) => {
+  const info = card?.info ?? {};
+  const storeId =
+    normalizeStoreText(info?.ID ?? info?.id ?? info?.storeId ?? card?.storeId) ||
+    null;
+  if (!storeId) return null;
+  const name = normalizeStoreText(info?.Name ?? info?.name ?? card?.name) || null;
+  const city = normalizeStoreText(info?.City ?? info?.city ?? card?.city) || null;
+  const province = normalizeStoreText(
+    info?.Province ??
+      info?.province ??
+      info?.State ??
+      info?.state ??
+      info?.region ??
+      null
+  );
+  const postalCode = normalizePostalCode(
+    info?.PostalCode ??
+      info?.postalCode ??
+      info?.postal ??
+      info?.zip ??
+      null
+  );
+  const lat = normalizeCoordinate(
+    info?.Latitude ?? info?.latitude ?? info?.lat ?? null
+  );
+  const lng = normalizeCoordinate(
+    info?.Longitude ?? info?.longitude ?? info?.lng ?? null
+  );
+  const address = normalizeStoreText(
+    info?.Address ??
+      info?.address ??
+      info?.address1 ??
+      info?.addressLine1 ??
+      null
+  );
+
+  return {
+    storeId,
+    name,
+    city,
+    province,
+    postalCode,
+    lat,
+    lng,
+    address
+  };
+};
+
+const fetchStoreLocatorHtmlViaFetch = async (url) => {
+  const response = await fetch(url, {
+    headers: {
+      "User-Agent": "Mozilla/5.0 (compatible; toysrus-scraper)"
+    }
+  });
+  console.warn(
+    `[toysrus] store locator response status=${response.status} url=${response.url}`
+  );
+  if (!response.ok) {
+    throw new Error(
+      `[toysrus] store locator request failed status=${response.status}`
+    );
+  }
+  return response.text();
+};
+
+const collectStoreCardsFromBackend = async ({
+  fetchHtml,
+  baseUrl,
+  postalCode,
+  latitude,
+  longitude,
+  radius,
+  storeId
+}) => {
+  const cards = [];
+  const visibleStoreIds = [];
+  const seen = new Set();
+  const normalizedTarget = storeId ? String(storeId).trim().toLowerCase() : null;
+  let nextUrl = buildStoresFindStoresUrl({
+    baseUrl,
+    page: 1,
+    batch: 10,
+    postalCode,
+    latitude,
+    longitude,
+    radius
+  });
+  let pageCount = 0;
+  let found = null;
+
+  while (nextUrl) {
+    pageCount += 1;
+    const html = await fetchHtml(nextUrl);
+    const pageCards = parseStoreCardsFromHtml(html);
+    for (const card of pageCards) {
+      if (!card?.storeId) continue;
+      const normalizedId = String(card.storeId).trim().toLowerCase();
+      if (seen.has(normalizedId)) continue;
+      seen.add(normalizedId);
+      cards.push(card);
+      visibleStoreIds.push(card.storeId);
+      if (normalizedTarget && normalizedId === normalizedTarget) {
+        found = card;
+      }
+    }
+
+    if (found && normalizedTarget) {
+      break;
+    }
+
+    const loadMoreUrl = findLoadMoreActionUrl(html);
+    nextUrl = loadMoreUrl ? new URL(loadMoreUrl, baseUrl).toString() : null;
+  }
+
+  return {
+    cards,
+    found,
+    pagesFetched: pageCount,
+    visibleStoreIds
+  };
+};
+
+const refreshStoreCache = async ({
+  postalCode,
+  latitude,
+  longitude,
+  radius
+}) => {
+  const baseUrl = new URL(CLEARANCE_URL).origin;
+  const { cards } = await collectStoreCardsFromBackend({
+    fetchHtml: fetchStoreLocatorHtmlViaFetch,
+    baseUrl,
+    postalCode,
+    latitude,
+    longitude,
+    radius
+  });
+  const entries = new Map();
+  for (const card of cards) {
+    const entry = buildStoreEntryFromCard(card);
+    if (!entry) continue;
+    entries.set(entry.storeId, entry);
+  }
+  const stores = Array.from(entries.values());
+  await fs.promises.mkdir(path.dirname(STORE_CACHE_PATH), { recursive: true });
+  await fs.promises.writeFile(STORE_CACHE_PATH, JSON.stringify(stores, null, 2));
+  return stores;
+};
+
+const storeCacheExists = async () => {
+  try {
+    await fs.promises.access(STORE_CACHE_PATH);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 const parseArgs = () => {
   const args = process.argv.slice(2);
   const getArg = (flag) => {
@@ -416,6 +616,8 @@ const parseArgs = () => {
 
   const limitStoresRaw = getArg("--limit-stores") || getArg("--limitStores");
 
+  const radiusRaw = getArg("--radius");
+
   return {
     storeId: getArg("--store-id") || getArg("--storeId"),
     city: getArg("--city"),
@@ -423,6 +625,8 @@ const parseArgs = () => {
     postalCode: getArg("--postal") || getArg("--postalCode"),
     latitude: normalizeCoordinate(getArg("--lat") || getArg("--latitude")),
     longitude: normalizeCoordinate(getArg("--lng") || getArg("--longitude")),
+    radius: radiusRaw ? Number(radiusRaw) : null,
+    refreshStores: args.includes("--refresh-stores") || args.includes("--refreshStores"),
     all: args.includes("--all"),
     limitStores: limitStoresRaw ? Number(limitStoresRaw) : null
   };
@@ -1219,247 +1423,113 @@ const validateSelectedStore = async (page, storeId) => {
 
 const setMyStoreByCityAndId = async (
   page,
-  { city, storeId, name, postalCode, latitude, longitude }
+  { city, storeId, name, postalCode, latitude, longitude, radius }
 ) => {
-  if (!postalCode && !(latitude && longitude)) {
+  const normalizedPostal = normalizePostalCode(postalCode);
+  const normalizedLatitude = normalizeCoordinate(latitude);
+  const normalizedLongitude = normalizeCoordinate(longitude);
+  const hasPostal = Boolean(normalizedPostal);
+  const hasLatLng =
+    normalizedLatitude !== null && normalizedLongitude !== null;
+
+  if (!hasPostal && !hasLatLng) {
+    throw new Error("Fournir --postal ou --lat/--lng");
+  }
+
+  if (hasPostal) {
+    console.log(`[toysrus] storeLocator: using postal=${normalizedPostal}`);
+  } else {
+    console.log(
+      `[toysrus] storeLocator: using lat=${normalizedLatitude} lng=${normalizedLongitude}`
+    );
+  }
+
+  const baseUrl = new URL(page.url()).origin;
+  const { cards, found, visibleStoreIds } = await collectStoreCardsFromBackend({
+    fetchHtml: (url) => fetchStoreLocatorHtml(page, url),
+    baseUrl,
+    postalCode: normalizedPostal,
+    latitude: hasLatLng ? normalizedLatitude : null,
+    longitude: hasLatLng ? normalizedLongitude : null,
+    radius,
+    storeId
+  });
+
+  console.log(`[toysrus] storeLocator: fetched ${cards.length} stores`);
+
+  let storeMatch = found;
+  if (!storeMatch && !storeId) {
+    const expectedCity = normalizeCity(city ?? name ?? "");
+    if (!expectedCity) {
+      throw new Error("storeId or city is required for store selection.");
+    }
+    storeMatch = cards.find((card) =>
+      normalizeCity(card.city ?? card.name).includes(expectedCity)
+    );
+  }
+
+  if (!storeMatch) {
+    const previewIds = visibleStoreIds.slice(0, 50);
+    const overflow =
+      visibleStoreIds.length > previewIds.length
+        ? ` (+${visibleStoreIds.length - previewIds.length} more)`
+        : "";
     throw new Error(
-      "postalCode ou lat/lng requis pour stores-findstores; fournissez --postal ou --lat/--lng"
+      `storeId introuvable dans les résultats: storeId=${storeId ?? ""} city=${city ?? ""} ` +
+        `postalCode=${normalizedPostal ?? ""} lat=${normalizedLatitude ?? ""} lng=${normalizedLongitude ?? ""} ` +
+        `visibleStoreIds=${JSON.stringify(previewIds)}${overflow}`
     );
   }
-  const locationInput = postalCode
-    ? postalCode
-    : latitude && longitude
-      ? `${latitude}, ${longitude}`
-      : null;
-  const attemptSelection = async (attempt, locationInput, locationLabel) => {
-    try {
-      const storeLocatorInput = page
-        .locator(STORE_SELECTOR_INPUT)
-        .first();
-      let storeLocatorReady = false;
 
-      for (let openAttempt = 0; openAttempt < 3; openAttempt += 1) {
-        await closeOverlays(page);
-        if (!(await isStoreSelectorOpen(page))) {
-          await openStoreSelector(page);
-        } else {
-          console.log("[toysrus] store selector already open; skipping Find Stores click");
-        }
-        await closeOverlays(page);
-
-        try {
-          await forceStoreSelectorVisible(page);
-          await storeLocatorInput.waitFor({ state: "attached", timeout: 15000 });
-          storeLocatorReady = true;
-          break;
-        } catch (error) {
-          await forceStoreSelectorVisible(page);
-          if (openAttempt === 2) {
-            throw error;
-          }
-        }
-      }
-
-      if (!storeLocatorReady) {
-        throw new Error("Store locator input not ready after retries.");
-      }
-
-      if (locationInput && normalizeStoreText(locationInput)) {
-        await fillStoreLocatorInput(page, storeLocatorInput, locationInput);
-      } else {
-        console.warn(
-          `[toysrus] no ${locationLabel} provided; attempting store search without location input`
-        );
-      }
-
-      const modal = page.locator("#storeSelectorModal");
-      await modal.waitFor({ state: "visible", timeout: 10000 });
-    } catch (error) {
-      await dumpStoreSelectorDebug(page);
-      throw error;
-    }
-
-    const normalizedStoreId = storeId ? String(storeId).trim() : null;
-    const expectedCity = city ?? name;
-    const modal = page.locator("#storeSelectorModal");
-    const modalRoot = (await modal.count()) ? modal : page.locator("body");
-
-    await modal.waitFor({ state: "visible", timeout: 30000 }).catch(() => {});
-
-    if (!normalizedStoreId) {
-      if (!expectedCity) {
-        throw new Error("storeId or city is required for store selection.");
-      }
-
-      await clickStoreSearchButton(page, modalRoot);
-      await waitForResults(page);
-      await loadAllStoreResults(page);
-      const selected = await selectStoreCardByCity(page, expectedCity);
-      if (!selected) {
-        console.warn(`[toysrus] store city match not found: city=${expectedCity}`);
-        return null;
-      }
-
-      const confirmButton = page
-        .locator("#storeSelectorModal button:has-text('Confirm as My Store')")
-        .first();
-      if (await confirmButton.isVisible().catch(() => false)) {
-        const clicked = await safeClick(confirmButton, "confirm store button", page);
-        if (!clicked) {
-          throw new Error("Failed to click confirm store button.");
-        }
-      }
-
-      console.log(
-        `[toysrus] store confirmed by city="${expectedCity}" name=${name ?? ""}`
-      );
-      await page.waitForTimeout(randomDelay());
-      return { selectedByCity: true };
-    }
-
-    const storeLocator = modal.locator("#storelocatorForm").first();
-    await storeLocator.waitFor({ state: "attached", timeout: 30000 });
-
-    let action =
-      (await storeLocator.getAttribute("action")) ||
-      (await storeLocator.getAttribute("data-action-url")) ||
-      null;
-
-    if (!action) {
-      action = await modal
-        .locator("button.js-detect-location")
-        .first()
-        .getAttribute("data-action");
-    }
-
-    if (!action) {
-      action = await modal
-        .locator("button.js-storelocator-loadmore")
-        .first()
-        .getAttribute("data-action-url");
-    }
-
-    if (!action) {
-      throw new Error(
-        "[toysrus] cannot find stores-findstores action url (storelocatorForm/action/data-action/data-action-url missing)"
-      );
-    }
-
-    const baseUrl = page.url();
-    const actionUrl = await buildStoreLocatorRequestUrl({
-      actionUrl: action,
-      baseUrl,
-      postalCode,
-      latitude,
-      longitude,
-      locationInput,
-      formLocator: storeLocator,
-      inputLocator: storeLocatorInput
-    });
-    const {
-      found: storeMatch,
-      pagesFetched,
-      visibleStores
-    } = await requestStoreCardsUntilFound(page, {
-      baseUrl,
-      actionUrl,
-      storeId: normalizedStoreId,
-      maxPages: Number(process.env.MAX_STORE_PAGES) || 15
-    });
-
-    if (!storeMatch) {
-      console.warn(
-        `[toysrus] storeId=${normalizedStoreId} not found after ${pagesFetched} page(s)`
-      );
-      console.warn(`[toysrus] visibleStores=${JSON.stringify(visibleStores)}`);
-      return null;
-    }
-
+  const storeEntry = buildStoreEntryFromCard(storeMatch);
+  if (storeEntry?.city) {
     console.log(
-      `[toysrus] matched store selector storeId=${normalizedStoreId} attempt=${attempt} location=${locationInput ?? ""}`
+      `[toysrus] storeLocator: found storeId=${storeEntry.storeId} city=${storeEntry.city}`
     );
-
-    const requestApplied = await applyStoreSelectionByRequest(
-      page,
-      storeMatch.selectUrl,
-      baseUrl
-    );
-
-    if (!requestApplied) {
-      const clicked = await clickStoreCardViaEvaluate(
-        page,
-        normalizedStoreId,
-        storeMatch.cardHtml
-      );
-      if (!clicked) {
-        throw new Error("Failed to click store card via evaluate.");
-      }
-    }
-
-    const confirmButton = page
-      .locator("#storeSelectorModal button:has-text('Confirm as My Store')")
-      .first();
-    if (await confirmButton.isVisible().catch(() => false)) {
-      const clicked = await safeClick(confirmButton, "confirm store button", page);
-      if (!clicked) {
-        throw new Error("Failed to click confirm store button.");
-      }
-    }
-
+  } else {
     console.log(
-      `[toysrus] store confirmed storeId=${storeId ?? ""} name=${name ?? ""} city=${city ?? ""}`
+      `[toysrus] storeLocator: found storeId=${storeMatch.storeId ?? ""} city=${storeMatch.city ?? ""}`
     );
-    await page.waitForTimeout(randomDelay());
-    return storeMatch;
-  };
-
-  for (let attempt = 1; attempt <= 2; attempt += 1) {
-    const locations = [];
-    if (locationInput && normalizeStoreText(locationInput)) {
-      locations.push({ value: locationInput, label: postalCode ? "postalCode" : "latlng" });
-    }
-    if (!locations.length) {
-      locations.push({ value: null, label: "location" });
-    }
-
-    let selectedCard = null;
-    for (const location of locations) {
-      selectedCard = await attemptSelection(attempt, location.value, location.label);
-      if (selectedCard) {
-        break;
-      }
-      console.warn(
-        `[toysrus] storeId=${storeId ?? ""} not found with ${location.label}="${location.value ?? ""}"`
-      );
-    }
-
-    if (!selectedCard) {
-      await dumpStoreListDebug(page);
-      const summaries = await getVisibleStoreSummaries(page, 20);
-      throw new Error(
-        `storeId introuvable dans les résultats: storeId=${storeId ?? ""} city=${city ?? ""} ` +
-          `postalCode=${postalCode ?? ""} lat=${latitude ?? ""} lng=${longitude ?? ""} ` +
-          `visibleStores=${JSON.stringify(summaries)}`
-      );
-    }
-
-    await page.goto(CLEARANCE_URL, { waitUntil: "domcontentloaded" });
-    await closeOverlays(page);
-
-    const validated = storeId ? await validateSelectedStore(page, storeId) : true;
-    if (validated) {
-      return;
-    }
-    console.warn(`[toysrus] store validation failed on attempt=${attempt}`);
-    if (attempt === 1) {
-      await openStoreSelector(page).catch(() => {});
-      await page.waitForTimeout(randomShortDelay());
-    }
   }
 
-  throw new Error(
-    `Store selection validation failed for storeId=${storeId ?? ""} city=${city ?? ""}`
+  const selectUrl =
+    storeMatch.selectUrl ||
+    storeMatch.info?.selectStoreUrl ||
+    storeMatch.info?.selectStoreURL ||
+    storeMatch.info?.SelectStoreUrl ||
+    storeMatch.info?.SelectStoreURL ||
+    storeMatch.info?.selectUrl ||
+    null;
+
+  if (!selectUrl) {
+    throw new Error(
+      `[toysrus] store selection url missing for storeId=${storeMatch.storeId ?? ""}`
+    );
+  }
+
+  const requestApplied = await applyStoreSelectionByRequest(
+    page,
+    selectUrl,
+    baseUrl
   );
+  if (!requestApplied) {
+    throw new Error("Failed to apply store selection request.");
+  }
+
+  console.log(
+    `[toysrus] store confirmed storeId=${storeMatch.storeId ?? ""} name=${name ?? ""} city=${city ?? ""}`
+  );
+  await page.waitForTimeout(randomDelay());
+
+  await page.goto(CLEARANCE_URL, { waitUntil: "domcontentloaded" });
+  await closeOverlays(page);
+
+  const validated = storeId ? await validateSelectedStore(page, storeId) : true;
+  if (!validated) {
+    throw new Error(
+      `Store selection validation failed for storeId=${storeId ?? ""} city=${city ?? ""}`
+    );
+  }
 };
 
 const waitForProductGrid = async (page) => {
@@ -1588,6 +1658,7 @@ const runSingleStore = async ({
   postalCode,
   latitude,
   longitude,
+  radius,
   allowStoreFallback
 }) => {
   if (
@@ -1602,9 +1673,7 @@ const runSingleStore = async ({
   }
 
   if (!postalCode && !(latitude !== null && longitude !== null)) {
-    throw new Error(
-      "postalCode ou lat/lng requis pour stores-findstores; fournissez --postal ou --lat/--lng"
-    );
+    throw new Error("Fournir --postal ou --lat/--lng");
   }
 
   const citySlug = slugify(city ?? postalCode) || "unknown-city";
@@ -1633,7 +1702,8 @@ const runSingleStore = async ({
         name,
         postalCode,
         latitude,
-        longitude
+        longitude,
+        radius
       });
     } catch (error) {
       if (!allowStoreFallback) {
@@ -1759,7 +1829,7 @@ const runSingleStore = async ({
   }
 };
 
-const runStoreBatch = async ({ stores, concurrency }) => {
+const runStoreBatch = async ({ stores, concurrency, radius }) => {
   let index = 0;
   const workers = Array.from({ length: concurrency }, async () => {
     while (index < stores.length) {
@@ -1781,6 +1851,7 @@ const runStoreBatch = async ({ stores, concurrency }) => {
         postalCode: resolved.postalCode,
         latitude: resolved.latitude,
         longitude: resolved.longitude,
+        radius,
         allowStoreFallback: resolved.usedFallback
       });
     }
@@ -1790,11 +1861,51 @@ const runStoreBatch = async ({ stores, concurrency }) => {
 };
 
 const scrapeStore = async () => {
-  const { storeId, city, name, postalCode, latitude, longitude, all, limitStores } =
-    parseArgs();
+  const {
+    storeId,
+    city,
+    name,
+    postalCode,
+    latitude,
+    longitude,
+    radius,
+    refreshStores,
+    all,
+    limitStores
+  } = parseArgs();
 
   if (limitStores !== null && (!Number.isFinite(limitStores) || limitStores <= 0)) {
     throw new Error("--limit-stores must be a positive number");
+  }
+  if (radius !== null && !Number.isFinite(radius)) {
+    throw new Error("--radius must be a number");
+  }
+
+  if (storeId && !postalCode && !(latitude !== null && longitude !== null)) {
+    throw new Error("Fournir --postal ou --lat/--lng");
+  }
+
+  if (refreshStores) {
+    if (!postalCode && !(latitude !== null && longitude !== null)) {
+      throw new Error("Fournir --postal ou --lat/--lng");
+    }
+    const normalizedPostal = normalizePostalCode(postalCode);
+    if (normalizedPostal) {
+      console.log(`[toysrus] storeLocator: using postal=${normalizedPostal}`);
+    } else {
+      console.log(
+        `[toysrus] storeLocator: using lat=${latitude} lng=${longitude}`
+      );
+    }
+    const stores = await refreshStoreCache({
+      postalCode,
+      latitude,
+      longitude,
+      radius
+    });
+    console.log(`[toysrus] storeLocator: fetched ${stores.length} stores`);
+  } else if (!(await storeCacheExists())) {
+    console.warn("[toysrus] store cache not found; consider --refresh-stores");
   }
 
   if (storeId) {
@@ -1813,6 +1924,7 @@ const scrapeStore = async () => {
       postalCode: resolved.postalCode,
       latitude: resolved.latitude,
       longitude: resolved.longitude,
+      radius,
       allowStoreFallback: resolved.usedFallback
     });
     return;
@@ -1840,7 +1952,7 @@ const scrapeStore = async () => {
     ? Math.max(1, requestedConcurrency)
     : defaultConcurrency;
 
-  await runStoreBatch({ stores: limitedStores, concurrency });
+  await runStoreBatch({ stores: limitedStores, concurrency, radius });
 };
 
 scrapeStore().catch((error) => {
