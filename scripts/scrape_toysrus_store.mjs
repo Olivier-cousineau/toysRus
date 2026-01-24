@@ -105,6 +105,32 @@ const slugify = (value) =>
     .replace(/[\s_-]+/g, "-")
     .replace(/^-+|-+$/g, "");
 
+const decodeHtmlEntities = (value) => {
+  if (!value) return "";
+  return String(value)
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) =>
+      String.fromCharCode(Number.parseInt(hex, 16))
+    )
+    .replace(/&#(\d+);/g, (_, num) =>
+      String.fromCharCode(Number.parseInt(num, 10))
+    )
+    .replace(/&quot;/gi, '"')
+    .replace(/&#34;/g, '"')
+    .replace(/&apos;/gi, "'")
+    .replace(/&#39;/g, "'")
+    .replace(/&#x27;/gi, "'")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">");
+};
+
+const extractAttribute = (input, name) => {
+  if (!input) return null;
+  const matcher = new RegExp(`${name}\\s*=\\s*["']([^"']+)["']`, "i");
+  const match = input.match(matcher);
+  return match ? match[1] : null;
+};
+
 const buildStoreLabel = (store) => {
   const city = normalizeStoreText(store?.city);
   const province = normalizeStoreText(
@@ -179,6 +205,74 @@ const resolveStoreInput = async ({ storeId, city, name, postalCode }) => {
     label,
     usedFallback: !store.city
   };
+};
+
+const parseStoreCardsFromHtml = (html) => {
+  if (!html) return [];
+  const cards = [];
+  const cardRegex =
+    /<div[^>]*class="[^"]*(?:store-details|b-locator_card)[^"]*"[^>]*>[\s\S]*?<\/div>/gi;
+  const matches = html.match(cardRegex) || [];
+
+  for (const block of matches) {
+    const openingTag = block.match(/<div[^>]*>/i)?.[0] ?? block;
+    const dataStoreIdRaw = extractAttribute(openingTag, "data-store-id");
+    const dataStoreInfoRaw =
+      extractAttribute(openingTag, "data-store-info") ||
+      extractAttribute(block, "data-store-info");
+
+    let parsedInfo = null;
+    if (dataStoreInfoRaw) {
+      const decoded = decodeHtmlEntities(dataStoreInfoRaw);
+      try {
+        parsedInfo = JSON.parse(decoded);
+      } catch {
+        parsedInfo = null;
+      }
+    }
+
+    const storeId =
+      dataStoreIdRaw ||
+      parsedInfo?.ID ||
+      parsedInfo?.id ||
+      parsedInfo?.storeId ||
+      null;
+    const city =
+      parsedInfo?.City ||
+      parsedInfo?.city ||
+      parsedInfo?.town ||
+      parsedInfo?.Town ||
+      null;
+    const name =
+      parsedInfo?.Name ||
+      parsedInfo?.name ||
+      parsedInfo?.storeName ||
+      parsedInfo?.StoreName ||
+      null;
+
+    const selectUrl =
+      extractAttribute(block, "data-select-store-url") ||
+      extractAttribute(block, "data-select-url") ||
+      extractAttribute(block, "data-action-url") ||
+      null;
+
+    cards.push({
+      storeId: storeId ? String(storeId).trim() : null,
+      city: normalizeStoreText(city),
+      name: normalizeStoreText(name),
+      selectUrl: selectUrl ? decodeHtmlEntities(selectUrl) : null,
+      cardHtml: block
+    });
+  }
+
+  return cards.filter((card) => card.storeId);
+};
+
+const findLoadMoreActionUrl = (html) => {
+  const match = html?.match(
+    /button[^>]*js-storelocator-loadmore[^>]*data-action-url=["']([^"']+)["']/i
+  );
+  return match ? decodeHtmlEntities(match[1]) : null;
 };
 
 const parseArgs = () => {
@@ -672,6 +766,100 @@ const selectStoreCardById = async (page, storeId) => {
   return null;
 };
 
+const fetchStoreLocatorHtml = async (page, url) => {
+  const response = await page.request.get(url);
+  if (!response.ok()) {
+    throw new Error(
+      `[toysrus] store locator request failed status=${response.status()}`
+    );
+  }
+  return response.text();
+};
+
+const requestStoreCardsUntilFound = async (
+  page,
+  { baseUrl, actionUrl, storeId, maxPages = 8 }
+) => {
+  let currentUrl = actionUrl;
+  let html = await fetchStoreLocatorHtml(page, currentUrl);
+  let cards = parseStoreCardsFromHtml(html);
+  let loadMoreUrl = findLoadMoreActionUrl(html);
+
+  const normalizedTarget = storeId ? String(storeId).trim().toLowerCase() : null;
+  const matchCard = () =>
+    cards.find(
+      (card) =>
+        card.storeId &&
+        String(card.storeId).trim().toLowerCase() === normalizedTarget
+    );
+
+  let found = matchCard();
+  let pageCount = 0;
+
+  while (!found && loadMoreUrl && pageCount < maxPages) {
+    const nextUrl = new URL(loadMoreUrl, baseUrl).toString();
+    html = await fetchStoreLocatorHtml(page, nextUrl);
+    const nextCards = parseStoreCardsFromHtml(html);
+    cards = cards.concat(nextCards);
+    found = matchCard();
+    loadMoreUrl = findLoadMoreActionUrl(html);
+    pageCount += 1;
+  }
+
+  return {
+    found,
+    cards,
+    pagesFetched: pageCount + 1
+  };
+};
+
+const applyStoreSelectionByRequest = async (page, selectUrl, baseUrl) => {
+  if (!selectUrl) return false;
+  const resolved = new URL(selectUrl, baseUrl).toString();
+  const response = await page.request.get(resolved);
+  if (!response.ok()) {
+    console.warn(
+      `[toysrus] store selection request failed status=${response.status()}`
+    );
+    return false;
+  }
+  return true;
+};
+
+const clickStoreCardViaEvaluate = async (page, storeId, cardHtml) => {
+  if (!storeId) return false;
+  const clicked = await page.evaluate(
+    ({ targetId, html }) => {
+      const modal = document.querySelector("#storeSelectorModal");
+      if (!modal) return false;
+      const normalize = (value) => String(value ?? "").trim().toLowerCase();
+      const findCard = () =>
+        modal.querySelector(`[data-store-id="${targetId}"]`) ||
+        modal.querySelector(`[data-store-id="${normalize(targetId)}"]`);
+
+      let card = findCard();
+      if (!card && html) {
+        const container =
+          modal.querySelector(".modal-body") ||
+          modal.querySelector(".store-locator-results") ||
+          modal.querySelector(".store-results") ||
+          modal;
+        container.insertAdjacentHTML("afterbegin", html);
+        card = findCard();
+      }
+
+      if (!card) return false;
+      const selectButton = card.querySelector("button.js-select-store");
+      const target = selectButton || card;
+      target.scrollIntoView({ block: "center", inline: "center" });
+      target.click();
+      return true;
+    },
+    { targetId: String(storeId), html: cardHtml ?? "" }
+  );
+  return Boolean(clicked);
+};
+
 const clickLoadMoreUntilStoreFound = async (page, storeId) => {
   const loadMoreLocator = page.locator("#storeSelectorModal button.js-storelocator-loadmore");
   const maxIterations = 15;
@@ -786,30 +974,40 @@ const setMyStoreByCityAndId = async (page, { city, storeId, name, postalCode }) 
 
       const modal = page.locator("#storeSelectorModal");
       await modal.waitFor({ state: "visible", timeout: 10000 });
-      await clickStoreSearchButton(page, modal);
-      await page.waitForTimeout(100);
     } catch (error) {
       await dumpStoreSelectorDebug(page);
       throw error;
     }
-
-    await page.waitForTimeout(randomDelay());
-    await setRadiusTo100(page);
-    await closeOverlays(page);
-
-    await waitForResults(page);
 
     const normalizedStoreId = storeId ? String(storeId).trim() : null;
     if (!normalizedStoreId) {
       throw new Error("storeId is required for store selection.");
     }
 
-    let storeCard = await selectStoreCardById(page, normalizedStoreId);
-    if (!storeCard) {
-      storeCard = await clickLoadMoreUntilStoreFound(page, normalizedStoreId);
+    const formAction = await page
+      .locator("form#storelocatorForm")
+      .first()
+      .getAttribute("action");
+    if (!formAction) {
+      throw new Error("store locator form action not found.");
     }
 
-    if (!storeCard) {
+    const baseUrl = page.url();
+    const actionUrl = new URL(formAction, baseUrl).toString();
+    const { found: storeMatch, pagesFetched } = await requestStoreCardsUntilFound(
+      page,
+      {
+        baseUrl,
+        actionUrl,
+        storeId: normalizedStoreId,
+        maxPages: Number(process.env.MAX_STORE_PAGES) || 8
+      }
+    );
+
+    if (!storeMatch) {
+      console.warn(
+        `[toysrus] storeId=${normalizedStoreId} not found after ${pagesFetched} page(s)`
+      );
       return null;
     }
 
@@ -817,19 +1015,20 @@ const setMyStoreByCityAndId = async (page, { city, storeId, name, postalCode }) 
       `[toysrus] matched store selector storeId=${normalizedStoreId} attempt=${attempt} location=${locationInput ?? ""}`
     );
 
-    await storeCard.scrollIntoViewIfNeeded().catch(() => {});
-    const storeSelectButton = storeCard
-      .locator("button.js-select-store")
-      .first();
-    if (await storeSelectButton.count()) {
-      const clicked = await safeClick(storeSelectButton, "store select button", page);
+    const requestApplied = await applyStoreSelectionByRequest(
+      page,
+      storeMatch.selectUrl,
+      baseUrl
+    );
+
+    if (!requestApplied) {
+      const clicked = await clickStoreCardViaEvaluate(
+        page,
+        normalizedStoreId,
+        storeMatch.cardHtml
+      );
       if (!clicked) {
-        throw new Error("Failed to click store select button.");
-      }
-    } else {
-      const clicked = await safeClick(storeCard, "store card", page);
-      if (!clicked) {
-        throw new Error("Failed to click store card.");
+        throw new Error("Failed to click store card via evaluate.");
       }
     }
 
@@ -847,7 +1046,7 @@ const setMyStoreByCityAndId = async (page, { city, storeId, name, postalCode }) 
       `[toysrus] store confirmed storeId=${storeId ?? ""} name=${name ?? ""} city=${city ?? ""}`
     );
     await page.waitForTimeout(randomDelay());
-    return storeCard;
+    return storeMatch;
   };
 
   for (let attempt = 1; attempt <= 2; attempt += 1) {
@@ -883,6 +1082,9 @@ const setMyStoreByCityAndId = async (page, { city, storeId, name, postalCode }) 
           `postalCode=${postalCode ?? ""} visibleStores=${JSON.stringify(summaries)}`
       );
     }
+
+    await page.goto(CLEARANCE_URL, { waitUntil: "domcontentloaded" });
+    await closeOverlays(page);
 
     const validated = await validateSelectedStore(page, storeId);
     if (validated) {
@@ -1018,8 +1220,8 @@ const extractProducts = async (page) =>
   });
 
 const runSingleStore = async ({ storeId, city, name, postalCode, allowStoreFallback }) => {
-  if (!city && !postalCode) {
-    throw new Error("--city or postalCode is required for single store runs");
+  if (!storeId && !city && !postalCode) {
+    throw new Error("--store-id, --city, or --postalCode is required for single store runs");
   }
 
   const citySlug = slugify(city ?? postalCode) || "unknown-city";
