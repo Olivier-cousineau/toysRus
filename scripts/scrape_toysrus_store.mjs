@@ -184,11 +184,14 @@ const parseArgs = () => {
     return index >= 0 ? args[index + 1] : null;
   };
 
+  const limitStoresRaw = getArg("--limit-stores") || getArg("--limitStores");
+
   return {
     storeId: getArg("--store-id") || getArg("--storeId"),
     city: getArg("--city"),
     name: getArg("--name"),
-    all: args.includes("--all")
+    all: args.includes("--all"),
+    limitStores: limitStoresRaw ? Number(limitStoresRaw) : null
   };
 };
 
@@ -899,15 +902,13 @@ const runSingleStore = async ({ storeId, city, name, allowStoreFallback }) => {
   }
 };
 
-const scrapeStore = async () => {
-  const { storeId, city, name, all } = parseArgs();
-
-  if (all) {
-    const stores = await readStores();
-    if (!stores) {
-      throw new Error("Store list not found for --all runs");
-    }
-    for (const store of stores) {
+const runStoreBatch = async ({ stores, concurrency }) => {
+  let index = 0;
+  const workers = Array.from({ length: concurrency }, async () => {
+    while (index < stores.length) {
+      const currentIndex = index;
+      index += 1;
+      const store = stores[currentIndex];
       const resolved = await resolveStoreInput({
         storeId: store.storeId,
         city: store.city,
@@ -920,22 +921,52 @@ const scrapeStore = async () => {
         allowStoreFallback: resolved.usedFallback
       });
     }
+  });
+
+  await Promise.all(workers);
+};
+
+const scrapeStore = async () => {
+  const { storeId, city, name, all, limitStores } = parseArgs();
+
+  if (limitStores !== null && (!Number.isFinite(limitStores) || limitStores <= 0)) {
+    throw new Error("--limit-stores must be a positive number");
+  }
+
+  if (storeId) {
+    const resolved = await resolveStoreInput({ storeId, city, name });
+    await runSingleStore({
+      storeId: resolved.storeId,
+      city: resolved.city,
+      name: resolved.name ?? resolved.label,
+      allowStoreFallback: resolved.usedFallback
+    });
     return;
   }
 
-  if (!storeId) {
-    if (!city) {
-      throw new Error("--city is required unless --all is provided");
-    }
+  const stores = await readStores();
+  if (!stores) {
+    throw new Error("Store list not found for full run");
   }
 
-  const resolved = await resolveStoreInput({ storeId, city, name });
-  await runSingleStore({
-    storeId: resolved.storeId,
-    city: resolved.city,
-    name: resolved.name ?? resolved.label,
-    allowStoreFallback: resolved.usedFallback
-  });
+  if (!all && (city || name)) {
+    console.warn(
+      "[toysrus] --city/--name ignored for full store runs; use --store-id for single store"
+    );
+  }
+
+  const limitedStores =
+    limitStores && limitStores < stores.length
+      ? stores.slice(0, limitStores)
+      : stores;
+
+  const defaultConcurrency = limitStores === 1 ? 1 : 4;
+  const requestedConcurrency = Number(process.env.CONCURRENCY);
+  const concurrency = Number.isFinite(requestedConcurrency)
+    ? Math.max(1, requestedConcurrency)
+    : defaultConcurrency;
+
+  await runStoreBatch({ stores: limitedStores, concurrency });
 };
 
 scrapeStore().catch((error) => {
