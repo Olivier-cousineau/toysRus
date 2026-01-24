@@ -984,16 +984,39 @@ const setMyStoreByCityAndId = async (page, { city, storeId, name, postalCode }) 
       throw new Error("storeId is required for store selection.");
     }
 
-    const formAction = await page
-      .locator("form#storelocatorForm")
-      .first()
-      .getAttribute("action");
-    if (!formAction) {
-      throw new Error("store locator form action not found.");
+    const modal = page.locator("#storeSelectorModal");
+    await modal.waitFor({ state: "visible", timeout: 30000 });
+
+    const storeLocator = modal.locator("#storelocatorForm").first();
+    await storeLocator.waitFor({ state: "attached", timeout: 30000 });
+
+    let action =
+      (await storeLocator.getAttribute("action")) ||
+      (await storeLocator.getAttribute("data-action-url")) ||
+      null;
+
+    if (!action) {
+      action = await modal
+        .locator("button.js-detect-location")
+        .first()
+        .getAttribute("data-action");
+    }
+
+    if (!action) {
+      action = await modal
+        .locator("button.js-storelocator-loadmore")
+        .first()
+        .getAttribute("data-action-url");
+    }
+
+    if (!action) {
+      throw new Error(
+        "[toysrus] cannot find stores-findstores action url (storelocatorForm/action/data-action/data-action-url missing)"
+      );
     }
 
     const baseUrl = page.url();
-    const actionUrl = new URL(formAction, baseUrl).toString();
+    const actionUrl = new URL(action, baseUrl).toString();
     const { found: storeMatch, pagesFetched } = await requestStoreCardsUntilFound(
       page,
       {
