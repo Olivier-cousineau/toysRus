@@ -490,22 +490,24 @@ const setMyStoreByCityAndId = async (page, { city, storeId, name }) => {
 
     const modal = page.locator("#storeSelectorModal");
     await modal.waitFor({ state: "visible", timeout: 10000 });
-    const modalSearchSelector = "button:has-text('Search'), button:has-text('Find')";
-    await modal.evaluate((el, selector) => {
+    const modalSearchButton = modal
+      .locator("button")
+      .filter({ hasText: /Search|Find|Find Stores/i })
+      .first();
+    await modal.evaluate((el) => {
       const scrollContainer = el.querySelector(".modal-body") || el;
       scrollContainer.scrollTop = 0;
-      const button = el.querySelector(selector);
+      const buttons = Array.from(el.querySelectorAll("button"));
+      const button = buttons.find((candidate) =>
+        /Search|Find|Find Stores/i.test(candidate.textContent || "")
+      );
       if (!button) return;
       const buttonRect = button.getBoundingClientRect();
       const containerRect = scrollContainer.getBoundingClientRect();
       if (buttonRect.top < containerRect.top || buttonRect.bottom > containerRect.bottom) {
         scrollContainer.scrollTop += buttonRect.top - containerRect.top - 10;
       }
-    }, modalSearchSelector);
-
-    const modalSearchButton = modal
-      .locator(modalSearchSelector)
-      .first();
+    });
     if (await modalSearchButton.isVisible().catch(() => false)) {
       await modalSearchButton.scrollIntoViewIfNeeded().catch(() => {});
       await modalSearchButton.waitFor({ state: "visible", timeout: 10000 }).catch(() => {});
