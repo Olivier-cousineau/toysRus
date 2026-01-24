@@ -490,59 +490,47 @@ const setMyStoreByCityAndId = async (page, { city, storeId, name }) => {
 
     const modal = page.locator("#storeSelectorModal");
     await modal.waitFor({ state: "visible", timeout: 10000 });
-    const modalSearchSelector = "button:has-text('Search'), button:has-text('Find')";
-    await modal.evaluate((el, selector) => {
-      const scrollContainer = el.querySelector(".modal-body") || el;
+    const modalSearchResult = await modal.evaluate((root) => {
+      const scrollContainer = root.querySelector(".modal-body") || root;
       scrollContainer.scrollTop = 0;
-      const button = el.querySelector(selector);
-      if (!button) return;
-      const buttonRect = button.getBoundingClientRect();
+      const buttons = Array.from(root.querySelectorAll("button"));
+      const target = buttons.find((button) =>
+        /search|find/i.test(button.textContent || "")
+      );
+      if (!target) {
+        return { found: false };
+      }
+
       const containerRect = scrollContainer.getBoundingClientRect();
+      const buttonRect = target.getBoundingClientRect();
       if (buttonRect.top < containerRect.top || buttonRect.bottom > containerRect.bottom) {
         scrollContainer.scrollTop += buttonRect.top - containerRect.top - 10;
       }
-    }, modalSearchSelector);
+      target.scrollIntoView({ block: "center", inline: "nearest" });
+      target.click();
 
-    const modalSearchButton = modal
-      .locator(modalSearchSelector)
-      .first();
-    if (await modalSearchButton.isVisible().catch(() => false)) {
-      await modalSearchButton.scrollIntoViewIfNeeded().catch(() => {});
-      await modalSearchButton.waitFor({ state: "visible", timeout: 10000 }).catch(() => {});
+      const rect = target.getBoundingClientRect();
+      const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
+      const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
+      const isIntersectingViewport =
+        rect.top >= 0 &&
+        rect.left >= 0 &&
+        rect.bottom <= viewportHeight &&
+        rect.right <= viewportWidth;
+
+      return {
+        found: true,
+        rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
+        viewport: { width: viewportWidth, height: viewportHeight },
+        isIntersectingViewport,
+      };
+    });
+
+    if (modalSearchResult?.found) {
+      console.log("[toysrus] modal search button boundingBox", modalSearchResult.rect);
+      console.log("[toysrus] viewport size", modalSearchResult.viewport);
+      console.log("[toysrus] isIntersectingViewport", modalSearchResult.isIntersectingViewport);
       await page.waitForTimeout(100);
-
-      const buttonBox = await modalSearchButton.boundingBox().catch(() => null);
-      const viewportSize = page.viewportSize();
-      const isIntersectingViewport = await modalSearchButton
-        .evaluate((el) => {
-          const rect = el.getBoundingClientRect();
-          const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
-          const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
-          return (
-            rect.top >= 0 &&
-            rect.left >= 0 &&
-            rect.bottom <= viewportHeight &&
-            rect.right <= viewportWidth
-          );
-        })
-        .catch(() => null);
-
-      console.log("[toysrus] modal search button boundingBox", buttonBox);
-      console.log("[toysrus] viewport size", viewportSize);
-      console.log("[toysrus] isIntersectingViewport", isIntersectingViewport);
-
-      try {
-        await modalSearchButton.click({ timeout: 10000 });
-      } catch (error) {
-        if (buttonBox) {
-          await page.mouse.click(
-            buttonBox.x + buttonBox.width / 2,
-            buttonBox.y + Math.min(10, buttonBox.height / 2)
-          );
-        }
-        await modalSearchButton.click({ force: true, timeout: 10000 }).catch(() => {});
-        await modalSearchButton.evaluate((el) => el.click()).catch(() => {});
-      }
     }
   } catch (error) {
     await dumpStoreSelectorDebug(page);
