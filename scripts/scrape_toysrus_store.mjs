@@ -1681,6 +1681,11 @@ const runSingleStore = async ({
     ? `${String(storeId)}-${citySlug}`
     : citySlug;
   const storeIdValue = storeId ? String(storeId) : null;
+  const storePostalCode = postalCode ?? null;
+
+  console.log(
+    `[toysrus] selected store name=${name ?? ""} postal=${storePostalCode ?? ""}`
+  );
 
   const browser = await chromium.launch({
     headless: true,
@@ -1762,6 +1767,11 @@ const runSingleStore = async ({
       path.join(outputDir, "data.json"),
       JSON.stringify(
         {
+          meta: {
+            storeId: storeIdValue,
+            storeName: name ?? null,
+            postalCode: storePostalCode
+          },
           storeId: storeIdValue,
           storeName: name ?? null,
           city,
