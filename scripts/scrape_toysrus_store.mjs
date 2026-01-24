@@ -90,6 +90,14 @@ const normalizeStoreText = (value) =>
     .replace(/\s+/g, " ")
     .trim();
 
+const normalizeCoordinate = (value) => {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
 const normalizeCity = (value) =>
   normalizeStoreText(value)
     .toLowerCase()
@@ -146,6 +154,65 @@ const buildStoreLabel = (store) => {
   return parts.length ? parts.join(", ") : null;
 };
 
+const resolveStoreLocation = ({ postalCode, latitude, longitude, store }) => {
+  const normalizedPostal = normalizeStoreText(postalCode) || null;
+  const normalizedLatitude = normalizeCoordinate(latitude);
+  const normalizedLongitude = normalizeCoordinate(longitude);
+  const hasArgsPostal = Boolean(normalizedPostal);
+  const hasArgsLatLng =
+    normalizedLatitude !== null && normalizedLongitude !== null;
+
+  if (hasArgsPostal) {
+    return {
+      postalCode: normalizedPostal,
+      latitude: null,
+      longitude: null,
+      source: "args-postal"
+    };
+  }
+  if (hasArgsLatLng) {
+    return {
+      postalCode: null,
+      latitude: normalizedLatitude,
+      longitude: normalizedLongitude,
+      source: "args-latlng"
+    };
+  }
+
+  const storePostal =
+    normalizeStoreText(store?.postalCode ?? store?.postal ?? store?.zip) || null;
+  const storeLatitude = normalizeCoordinate(
+    store?.latitude ?? store?.lat ?? store?.Latitude ?? store?.Lat ?? null
+  );
+  const storeLongitude = normalizeCoordinate(
+    store?.longitude ?? store?.lng ?? store?.Longitude ?? store?.Lng ?? null
+  );
+
+  if (storePostal) {
+    return {
+      postalCode: storePostal,
+      latitude: null,
+      longitude: null,
+      source: "store-postal"
+    };
+  }
+  if (storeLatitude !== null && storeLongitude !== null) {
+    return {
+      postalCode: null,
+      latitude: storeLatitude,
+      longitude: storeLongitude,
+      source: "store-latlng"
+    };
+  }
+
+  return {
+    postalCode: null,
+    latitude: null,
+    longitude: null,
+    source: "none"
+  };
+};
+
 const resolveStoreInput = async ({
   storeId,
   city,
@@ -154,14 +221,19 @@ const resolveStoreInput = async ({
   latitude,
   longitude
 }) => {
-  const normalizedPostal = normalizeStoreText(postalCode) || null;
+  const resolvedLocation = resolveStoreLocation({
+    postalCode,
+    latitude,
+    longitude,
+    store: null
+  });
   const resolved = {
     storeId,
     city: city ? normalizeStoreText(city) : null,
     name: name ?? null,
-    postalCode: normalizedPostal,
-    latitude: latitude ?? null,
-    longitude: longitude ?? null,
+    postalCode: resolvedLocation.postalCode,
+    latitude: resolvedLocation.latitude,
+    longitude: resolvedLocation.longitude,
     label: buildStoreLabel({ city, name }) ?? null,
     usedFallback: false
   };
@@ -207,36 +279,20 @@ const resolveStoreInput = async ({
     null;
   const label = resolved.label ?? buildStoreLabel(store) ?? resolvedName ?? resolvedCity;
 
-  const storePostal =
-    normalizeStoreText(store.postalCode ?? store.postal ?? store.zip) || null;
-  const storeLatitude =
-    store.latitude ?? store.lat ?? store.Latitude ?? store.Lat ?? null;
-  const storeLongitude =
-    store.longitude ?? store.lng ?? store.Longitude ?? store.Lng ?? null;
-
-  const hasArgsPostal = Boolean(resolved.postalCode);
-  const hasArgsLatLng = Boolean(resolved.latitude && resolved.longitude);
-
-  let finalPostal = resolved.postalCode;
-  let finalLatitude = resolved.latitude;
-  let finalLongitude = resolved.longitude;
-
-  if (!hasArgsPostal && !hasArgsLatLng) {
-    if (storePostal) {
-      finalPostal = storePostal;
-    } else if (storeLatitude && storeLongitude) {
-      finalLatitude = storeLatitude;
-      finalLongitude = storeLongitude;
-    }
-  }
+  const finalLocation = resolveStoreLocation({
+    postalCode,
+    latitude,
+    longitude,
+    store
+  });
 
   return {
     ...resolved,
     city: resolvedCity,
     name: resolvedName,
-    postalCode: finalPostal,
-    latitude: finalLatitude,
-    longitude: finalLongitude,
+    postalCode: finalLocation.postalCode,
+    latitude: finalLocation.latitude,
+    longitude: finalLocation.longitude,
     label,
     usedFallback: !store.city
   };
@@ -358,8 +414,8 @@ const parseArgs = () => {
     city: getArg("--city"),
     name: getArg("--name"),
     postalCode: getArg("--postal") || getArg("--postalCode"),
-    latitude: getArg("--lat") || getArg("--latitude"),
-    longitude: getArg("--lng") || getArg("--longitude"),
+    latitude: normalizeCoordinate(getArg("--lat") || getArg("--latitude")),
+    longitude: normalizeCoordinate(getArg("--lng") || getArg("--longitude")),
     all: args.includes("--all"),
     limitStores: limitStoresRaw ? Number(limitStoresRaw) : null
   };
@@ -1453,13 +1509,18 @@ const runSingleStore = async ({
   longitude,
   allowStoreFallback
 }) => {
-  if (!storeId && !city && !postalCode && !(latitude && longitude)) {
+  if (
+    !storeId &&
+    !city &&
+    !postalCode &&
+    !(latitude !== null && longitude !== null)
+  ) {
     throw new Error(
-      "--store-id, --city, --postalCode, or --lat/--lng is required for single store runs"
+      "--store-id, --city, --postal, or --lat/--lng is required for single store runs"
     );
   }
 
-  if (!postalCode && !(latitude && longitude)) {
+  if (!postalCode && !(latitude !== null && longitude !== null)) {
     throw new Error(
       "postalCode ou lat/lng requis pour stores-findstores; fournissez --postal ou --lat/--lng"
     );
