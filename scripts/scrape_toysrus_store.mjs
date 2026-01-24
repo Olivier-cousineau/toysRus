@@ -120,12 +120,13 @@ const buildStoreLabel = (store) => {
   return parts.length ? parts.join(", ") : null;
 };
 
-const resolveStoreInput = async ({ storeId, city, name }) => {
+const resolveStoreInput = async ({ storeId, city, name, postalCode }) => {
   if (city) {
     return {
       storeId,
       city,
       name,
+      postalCode: postalCode ?? null,
       label: buildStoreLabel({ city, name }) ?? null,
       usedFallback: false
     };
@@ -138,6 +139,7 @@ const resolveStoreInput = async ({ storeId, city, name }) => {
       storeId,
       city: "unknown",
       name: name ?? null,
+      postalCode: postalCode ?? null,
       label: buildStoreLabel({ city: "unknown", name }) ?? null,
       usedFallback: true
     };
@@ -150,6 +152,7 @@ const resolveStoreInput = async ({ storeId, city, name }) => {
       storeId,
       city: "unknown",
       name: name ?? null,
+      postalCode: postalCode ?? null,
       label: buildStoreLabel({ city: "unknown", name }) ?? null,
       usedFallback: true
     };
@@ -172,6 +175,7 @@ const resolveStoreInput = async ({ storeId, city, name }) => {
     storeId,
     city: resolvedCity,
     name: resolvedName,
+    postalCode: normalizeStoreText(store.postalCode ?? store.postal ?? store.zip) || null,
     label,
     usedFallback: !store.city
   };
@@ -368,13 +372,62 @@ const dumpStoreListDebug = async (page) => {
   await fs.promises.writeFile("debug_store_list.html", html).catch(() => {});
 };
 
+const getVisibleStoreSummaries = async (page, limit = 20) => {
+  const summaries = await page
+    .evaluate((maxItems) => {
+      const decode = (raw) => {
+        if (!raw) return null;
+        const textarea = document.createElement("textarea");
+        textarea.innerHTML = raw;
+        return textarea.value;
+      };
+
+      const cards = Array.from(
+        document.querySelectorAll(
+          "#storeSelectorModal .store-details, #storeSelectorModal .js-card-body.b-locator_card"
+        )
+      ).slice(0, maxItems);
+
+      return cards.map((card, index) => {
+        const dataStoreId = card.getAttribute("data-store-id");
+        const infoRaw = card.getAttribute("data-store-info");
+        let parsedId = null;
+        let postalCode = null;
+        if (infoRaw) {
+          try {
+            const decoded = decode(infoRaw);
+            const parsed = JSON.parse(decoded);
+            parsedId = parsed?.ID ?? parsed?.id ?? parsed?.storeId ?? null;
+            postalCode = parsed?.postalCode ?? parsed?.postal ?? parsed?.zip ?? null;
+          } catch {
+            parsedId = null;
+          }
+        }
+        const text = (card.innerText || "").replace(/\s+/g, " ").trim();
+        return {
+          index,
+          dataStoreId,
+          parsedId,
+          postalCode,
+          text: text.slice(0, 200)
+        };
+      });
+    }, limit)
+    .catch(() => []);
+
+  if (summaries.length) {
+    console.warn("[toysrus] visible store summaries", summaries);
+  }
+  return summaries;
+};
+
 const isStoreSelectorOpen = async (page) => {
   const input = page.locator(STORE_INPUT).first();
   return (await input.count()) > 0 && await input.isVisible().catch(() => false);
 };
 
 const openStoreSelector = async (page) => {
-  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.setViewportSize({ width: 1920, height: 1080 });
   await dismissOverlays(page);
   const triggerLocator = page.locator(STORE_SELECTOR_TRIGGER);
   await triggerLocator.first().waitFor({ state: "attached", timeout: 20000 });
@@ -502,10 +555,16 @@ const safeClick = async (locator, label, page) => {
     if (handle) {
       await page
         .evaluate((element) => {
-          element.scrollIntoView({ block: "center", inline: "nearest" });
+          element.scrollIntoView({ block: "center", inline: "center" });
         }, handle)
         .catch(() => {});
     }
+  }
+
+  try {
+    await locator.click({ timeout: 15000, trial: true });
+  } catch (error) {
+    console.warn(`[toysrus] ${label} trial click failed`, error);
   }
 
   try {
@@ -675,8 +734,8 @@ const validateSelectedStore = async (page, storeId) => {
   return matches;
 };
 
-const setMyStoreByCityAndId = async (page, { city, storeId, name }) => {
-  const attemptSelection = async (attempt) => {
+const setMyStoreByCityAndId = async (page, { city, storeId, name, postalCode }) => {
+  const attemptSelection = async (attempt, locationInput, locationLabel) => {
     try {
       const storeLocatorInput = page
         .locator(STORE_SELECTOR_INPUT)
@@ -709,8 +768,8 @@ const setMyStoreByCityAndId = async (page, { city, storeId, name }) => {
         throw new Error("Store locator input not ready after retries.");
       }
 
-      if (city && normalizeStoreText(city)) {
-        await fillStoreLocatorInput(page, storeLocatorInput, city);
+      if (locationInput && normalizeStoreText(locationInput)) {
+        await fillStoreLocatorInput(page, storeLocatorInput, locationInput);
         await storeLocatorInput.press("Enter").catch(() => {});
 
         const autoCompleteSuggestion = page
@@ -720,7 +779,9 @@ const setMyStoreByCityAndId = async (page, { city, storeId, name }) => {
           await safeClick(autoCompleteSuggestion, "autocomplete suggestion", page);
         }
       } else {
-        console.warn("[toysrus] no city provided; attempting store search without location input");
+        console.warn(
+          `[toysrus] no ${locationLabel} provided; attempting store search without location input`
+        );
       }
 
       const modal = page.locator("#storeSelectorModal");
@@ -749,14 +810,11 @@ const setMyStoreByCityAndId = async (page, { city, storeId, name }) => {
     }
 
     if (!storeCard) {
-      await dumpStoreListDebug(page);
-      throw new Error(
-        `Store not found in selector list: city=${city ?? ""} storeId=${storeId ?? ""}`
-      );
+      return null;
     }
 
     console.log(
-      `[toysrus] matched store selector storeId=${normalizedStoreId} attempt=${attempt}`
+      `[toysrus] matched store selector storeId=${normalizedStoreId} attempt=${attempt} location=${locationInput ?? ""}`
     );
 
     await storeCard.scrollIntoViewIfNeeded().catch(() => {});
@@ -786,13 +844,46 @@ const setMyStoreByCityAndId = async (page, { city, storeId, name }) => {
     }
 
     console.log(
-      `[toysrus] store confirmed storeId=${storeId ?? ""} name=${name ?? ""} city=${city}`
+      `[toysrus] store confirmed storeId=${storeId ?? ""} name=${name ?? ""} city=${city ?? ""}`
     );
     await page.waitForTimeout(randomDelay());
+    return storeCard;
   };
 
   for (let attempt = 1; attempt <= 2; attempt += 1) {
-    await attemptSelection(attempt);
+    const locations = [];
+    if (city && normalizeStoreText(city)) {
+      locations.push({ value: city, label: "city" });
+    }
+    if (postalCode && normalizeStoreText(postalCode)) {
+      if (!locations.some((entry) => normalizeStoreText(entry.value) === normalizeStoreText(postalCode))) {
+        locations.push({ value: postalCode, label: "postalCode" });
+      }
+    }
+    if (!locations.length) {
+      locations.push({ value: null, label: "location" });
+    }
+
+    let selectedCard = null;
+    for (const location of locations) {
+      selectedCard = await attemptSelection(attempt, location.value, location.label);
+      if (selectedCard) {
+        break;
+      }
+      console.warn(
+        `[toysrus] storeId=${storeId ?? ""} not found with ${location.label}="${location.value ?? ""}"`
+      );
+    }
+
+    if (!selectedCard) {
+      await dumpStoreListDebug(page);
+      const summaries = await getVisibleStoreSummaries(page, 20);
+      throw new Error(
+        `storeId introuvable dans les résultats: storeId=${storeId ?? ""} city=${city ?? ""} ` +
+          `postalCode=${postalCode ?? ""} visibleStores=${JSON.stringify(summaries)}`
+      );
+    }
+
     const validated = await validateSelectedStore(page, storeId);
     if (validated) {
       return;
@@ -926,26 +1017,32 @@ const extractProducts = async (page) =>
     });
   });
 
-const runSingleStore = async ({ storeId, city, name, allowStoreFallback }) => {
-  if (!city) {
-    throw new Error("--city is required for single store runs");
+const runSingleStore = async ({ storeId, city, name, postalCode, allowStoreFallback }) => {
+  if (!city && !postalCode) {
+    throw new Error("--city or postalCode is required for single store runs");
   }
 
-  const citySlug = slugify(city) || "unknown-city";
+  const citySlug = slugify(city ?? postalCode) || "unknown-city";
   const outputSlug = storeId
     ? `${String(storeId)}-${citySlug}`
     : citySlug;
   const storeIdValue = storeId ? String(storeId) : null;
 
-  const browser = await chromium.launch({ headless: true });
-  const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+  const browser = await chromium.launch({
+    headless: true,
+    args: ["--window-size=1920,1080"]
+  });
+  const context = await browser.newContext({
+    viewport: { width: 1920, height: 1080 }
+  });
+  const page = await context.newPage();
 
   try {
     await page.goto(CLEARANCE_URL, { waitUntil: "domcontentloaded" });
     await closeOverlays(page);
 
     try {
-      await setMyStoreByCityAndId(page, { city, storeId, name });
+      await setMyStoreByCityAndId(page, { city, storeId, name, postalCode });
     } catch (error) {
       if (!allowStoreFallback) {
         throw error;
@@ -1080,12 +1177,14 @@ const runStoreBatch = async ({ stores, concurrency }) => {
       const resolved = await resolveStoreInput({
         storeId: store.storeId,
         city: store.city,
-        name: store.name ?? store.storeName ?? store.searchText
+        name: store.name ?? store.storeName ?? store.searchText,
+        postalCode: store.postalCode ?? store.postal ?? store.zip
       });
       await runSingleStore({
         storeId: resolved.storeId,
         city: resolved.city,
         name: resolved.name ?? resolved.label,
+        postalCode: resolved.postalCode,
         allowStoreFallback: resolved.usedFallback
       });
     }
@@ -1107,6 +1206,7 @@ const scrapeStore = async () => {
       storeId: resolved.storeId,
       city: resolved.city,
       name: resolved.name ?? resolved.label,
+      postalCode: resolved.postalCode,
       allowStoreFallback: resolved.usedFallback
     });
     return;
