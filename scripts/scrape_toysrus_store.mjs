@@ -450,6 +450,97 @@ const setRadiusTo100 = async (page) => {
   }
 };
 
+const getScrollableModalContainerHandle = async (modalLocator) => {
+  const modalHandle = await modalLocator.elementHandle();
+  if (!modalHandle) return null;
+  const containerHandle = await modalHandle.evaluateHandle((modal) => {
+    return modal.querySelector(".modal-body") || modal;
+  });
+  return containerHandle.asElement();
+};
+
+const scrollContainerToRevealHandle = async (page, containerHandle, targetHandle) => {
+  if (!containerHandle || !targetHandle) return;
+  await page
+    .evaluate(([container, target]) => {
+      const containerRect = container.getBoundingClientRect();
+      const targetRect = target.getBoundingClientRect();
+      const offset = targetRect.top - containerRect.top - 20;
+      if (
+        targetRect.top < containerRect.top ||
+        targetRect.bottom > containerRect.bottom
+      ) {
+        container.scrollTop += offset;
+      }
+    }, [containerHandle, targetHandle])
+    .catch(() => {});
+};
+
+const logLocatorDiagnostics = async (page, locator, label) => {
+  const boundingBox = await locator.boundingBox().catch(() => null);
+  const viewport = page.viewportSize() || { width: null, height: null };
+  const isIntersectingViewport = await locator
+    .isIntersectingViewport()
+    .catch(() => null);
+  console.warn(`[toysrus] ${label} boundingBox`, boundingBox);
+  console.warn(`[toysrus] ${label} viewport`, viewport);
+  console.warn(`[toysrus] ${label} isIntersectingViewport`, isIntersectingViewport);
+  return { boundingBox, viewport, isIntersectingViewport };
+};
+
+const clickLocatorWithFallback = async (page, locator) => {
+  await locator.scrollIntoViewIfNeeded().catch(() => {});
+  const diagnostics = await logLocatorDiagnostics(page, locator, "search button");
+
+  if (diagnostics.isIntersectingViewport === false) {
+    const handle = await locator.elementHandle();
+    if (handle) {
+      await page
+        .evaluate((element) => {
+          element.scrollIntoView({ block: "center", inline: "nearest" });
+        }, handle)
+        .catch(() => {});
+    }
+  }
+
+  try {
+    await locator.click({ trial: true, timeout: 5000 });
+    await locator.click({ timeout: 15000 });
+    return true;
+  } catch (error) {
+    console.warn("[toysrus] locator click failed, attempting fallback", error);
+  }
+
+  try {
+    await locator.dispatchEvent("click");
+    return true;
+  } catch (error) {
+    console.warn("[toysrus] dispatchEvent click failed", error);
+  }
+  return false;
+};
+
+const clickStoreSearchButton = async (page, modalLocator) => {
+  const buttonLocator = modalLocator
+    .locator("button")
+    .filter({ hasText: /find stores|search stores|search/i })
+    .first();
+
+  await buttonLocator.waitFor({ state: "attached", timeout: 15000 });
+
+  const containerHandle = await getScrollableModalContainerHandle(modalLocator);
+  const buttonHandle = await buttonLocator.elementHandle();
+  if (containerHandle && buttonHandle) {
+    await scrollContainerToRevealHandle(page, containerHandle, buttonHandle);
+  }
+
+  await buttonLocator.scrollIntoViewIfNeeded().catch(() => {});
+  const clicked = await clickLocatorWithFallback(page, buttonLocator);
+  if (!clicked) {
+    throw new Error("Failed to click store search button.");
+  }
+};
+
 const setMyStoreByCityAndId = async (page, { city, storeId, name }) => {
   try {
     const storeLocatorInput = page
@@ -483,58 +574,24 @@ const setMyStoreByCityAndId = async (page, { city, storeId, name }) => {
       throw new Error("Store locator input not ready after retries.");
     }
 
-    await fillStoreLocatorInput(page, storeLocatorInput, city);
-    await storeLocatorInput.press("Enter").catch(() => {});
+    if (city && normalizeStoreText(city)) {
+      await fillStoreLocatorInput(page, storeLocatorInput, city);
+      await storeLocatorInput.press("Enter").catch(() => {});
 
-    const autoCompleteSuggestion = page.locator(".pac-container .pac-item").first();
-    if (await autoCompleteSuggestion.isVisible().catch(() => false)) {
-      await autoCompleteSuggestion.click({ timeout: 5000 }).catch(() => {});
+      const autoCompleteSuggestion = page
+        .locator(".pac-container .pac-item")
+        .first();
+      if (await autoCompleteSuggestion.isVisible().catch(() => false)) {
+        await autoCompleteSuggestion.click({ timeout: 5000 }).catch(() => {});
+      }
+    } else {
+      console.warn("[toysrus] no city provided; attempting store search without location input");
     }
 
     const modal = page.locator("#storeSelectorModal");
     await modal.waitFor({ state: "visible", timeout: 10000 });
-    const modalSearchResult = await modal.evaluate((root) => {
-      const scrollContainer = root.querySelector(".modal-body") || root;
-      scrollContainer.scrollTop = 0;
-      const buttons = Array.from(root.querySelectorAll("button"));
-      const target = buttons.find((button) =>
-        /search|find/i.test(button.textContent || "")
-      );
-      if (!target) {
-        return { found: false };
-      }
-
-      const containerRect = scrollContainer.getBoundingClientRect();
-      const buttonRect = target.getBoundingClientRect();
-      if (buttonRect.top < containerRect.top || buttonRect.bottom > containerRect.bottom) {
-        scrollContainer.scrollTop += buttonRect.top - containerRect.top - 10;
-      }
-      target.scrollIntoView({ block: "center", inline: "nearest" });
-      target.click();
-
-      const rect = target.getBoundingClientRect();
-      const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
-      const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
-      const isIntersectingViewport =
-        rect.top >= 0 &&
-        rect.left >= 0 &&
-        rect.bottom <= viewportHeight &&
-        rect.right <= viewportWidth;
-
-      return {
-        found: true,
-        rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height },
-        viewport: { width: viewportWidth, height: viewportHeight },
-        isIntersectingViewport,
-      };
-    });
-
-    if (modalSearchResult?.found) {
-      console.log("[toysrus] modal search button boundingBox", modalSearchResult.rect);
-      console.log("[toysrus] viewport size", modalSearchResult.viewport);
-      console.log("[toysrus] isIntersectingViewport", modalSearchResult.isIntersectingViewport);
-      await page.waitForTimeout(100);
-    }
+    await clickStoreSearchButton(page, modal);
+    await page.waitForTimeout(100);
   } catch (error) {
     await dumpStoreSelectorDebug(page);
     throw error;
@@ -547,10 +604,13 @@ const setMyStoreByCityAndId = async (page, { city, storeId, name }) => {
   const storeCardLocator = page.locator("#storeSelectorModal .js-card-body.b-locator_card");
   await storeCardLocator.first().waitFor({ state: "attached", timeout: 30000 });
 
-  const targetCity = normalizeCity(city);
+  const targetCity = city ? normalizeCity(city) : null;
+  const targetStoreId = storeId ? String(storeId).trim().toLowerCase() : null;
   const cardCount = await storeCardLocator.count();
-  let matchedStoreId = null;
-  let matchedInfo = null;
+  let cityMatch = null;
+  let cityMatchInfo = null;
+  let idMatch = null;
+  let idMatchInfo = null;
 
   for (let i = 0; i < cardCount; i += 1) {
     const card = storeCardLocator.nth(i);
@@ -570,26 +630,37 @@ const setMyStoreByCityAndId = async (page, { city, storeId, name }) => {
       continue;
     }
 
-    const candidateCity = normalizeCity(info?.city || info?.name || "");
-    if (!candidateCity) continue;
-    if (!candidateCity.includes(targetCity) && !targetCity.includes(candidateCity)) {
-      continue;
-    }
-
     const rawId = info?.ID ?? info?.id ?? info?.storeId;
     const cardId = await card.getAttribute("id").catch(() => null);
     const resolvedId = String(rawId ?? cardId ?? "").trim();
     if (!resolvedId) continue;
+    const normalizedId = resolvedId.toLowerCase();
 
-    matchedStoreId = resolvedId;
-    matchedInfo = info;
-    break;
+    if (targetStoreId && normalizedId === targetStoreId && !idMatch) {
+      idMatch = resolvedId;
+      idMatchInfo = info;
+    }
+
+    const candidateCity = normalizeCity(info?.city || info?.name || "");
+    if (targetCity && candidateCity) {
+      if (
+        candidateCity.includes(targetCity) ||
+        targetCity.includes(candidateCity)
+      ) {
+        cityMatch = resolvedId;
+        cityMatchInfo = info;
+        break;
+      }
+    }
   }
 
+  const matchedStoreId = cityMatch ?? idMatch;
+  const matchedInfo = cityMatchInfo ?? idMatchInfo;
+
   if (!matchedStoreId) {
-    const maxLogs = Math.min(cardCount, 10);
+    const maxLogs = Math.min(cardCount, 20);
     if (maxLogs) {
-      console.warn("[toysrus] store selector list (first 10):");
+      console.warn("[toysrus] store selector list (first 20):");
     }
     for (let i = 0; i < maxLogs; i += 1) {
       const card = storeCardLocator.nth(i);
@@ -612,7 +683,9 @@ const setMyStoreByCityAndId = async (page, { city, storeId, name }) => {
       }
     }
     await dumpStoreListDebug(page);
-    throw new Error(`City not found in store selector list: city=${city}`);
+    throw new Error(
+      `Store not found in selector list: city=${city ?? ""} storeId=${storeId ?? ""}`
+    );
   }
 
   console.log(
