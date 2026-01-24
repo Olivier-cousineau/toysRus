@@ -476,23 +476,28 @@ const scrollContainerToRevealHandle = async (page, containerHandle, targetHandle
     .catch(() => {});
 };
 
-const logLocatorDiagnostics = async (page, locator, label) => {
-  const boundingBox = await locator.boundingBox().catch(() => null);
-  const viewport = page.viewportSize() || { width: null, height: null };
-  const isIntersectingViewport = await locator
-    .isIntersectingViewport()
-    .catch(() => null);
-  console.warn(`[toysrus] ${label} boundingBox`, boundingBox);
-  console.warn(`[toysrus] ${label} viewport`, viewport);
-  console.warn(`[toysrus] ${label} isIntersectingViewport`, isIntersectingViewport);
-  return { boundingBox, viewport, isIntersectingViewport };
+const intersectsViewport = (box, vp) => {
+  if (!box || !vp) return false;
+  const x2 = box.x + box.width;
+  const y2 = box.y + box.height;
+  return x2 > 0 && y2 > 0 && box.x < vp.width && box.y < vp.height;
 };
 
-const safeClick = async (page, locator, label) => {
-  await locator.scrollIntoViewIfNeeded().catch(() => {});
-  const diagnostics = await logLocatorDiagnostics(page, locator, label);
+const logLocatorDiagnostics = async (locator, label, page) => {
+  const boundingBox = await locator.boundingBox().catch(() => null);
+  const viewportSize = page.viewportSize() || { width: null, height: null };
+  const isInViewport = intersectsViewport(boundingBox, viewportSize);
+  console.warn(`[toysrus] ${label} boundingBox`, boundingBox);
+  console.warn(`[toysrus] ${label} viewportSize`, viewportSize);
+  console.warn(`[toysrus] ${label} isInViewport`, isInViewport);
+  return { boundingBox, viewportSize, isInViewport };
+};
 
-  if (diagnostics.isIntersectingViewport === false) {
+const safeClick = async (locator, label, page) => {
+  await locator.scrollIntoViewIfNeeded().catch(() => {});
+  const diagnostics = await logLocatorDiagnostics(locator, label, page);
+
+  if (diagnostics.isInViewport === false) {
     const handle = await locator.elementHandle();
     if (handle) {
       await page
@@ -541,7 +546,7 @@ const clickStoreSearchButton = async (page, modalLocator) => {
     await scrollContainerToRevealHandle(page, containerHandle, buttonHandle);
   }
 
-  const clicked = await safeClick(page, buttonLocator, "store search button");
+  const clicked = await safeClick(buttonLocator, "store search button", page);
   if (!clicked) {
     throw new Error("Failed to click store search button.");
   }
@@ -627,7 +632,7 @@ const clickLoadMoreUntilStoreFound = async (page, storeId) => {
     }
 
     console.warn(`[toysrus] load more iteration=${iteration + 1}`);
-    const clicked = await safeClick(page, loadMoreLocator.first(), "load more stores");
+    const clicked = await safeClick(loadMoreLocator.first(), "load more stores", page);
     if (!clicked) {
       console.warn("[toysrus] load more click failed; stopping");
       break;
@@ -712,7 +717,7 @@ const setMyStoreByCityAndId = async (page, { city, storeId, name }) => {
           .locator(".pac-container .pac-item")
           .first();
         if (await autoCompleteSuggestion.isVisible().catch(() => false)) {
-          await safeClick(page, autoCompleteSuggestion, "autocomplete suggestion");
+          await safeClick(autoCompleteSuggestion, "autocomplete suggestion", page);
         }
       } else {
         console.warn("[toysrus] no city provided; attempting store search without location input");
@@ -759,12 +764,12 @@ const setMyStoreByCityAndId = async (page, { city, storeId, name }) => {
       .locator("button.js-select-store")
       .first();
     if (await storeSelectButton.count()) {
-      const clicked = await safeClick(page, storeSelectButton, "store select button");
+      const clicked = await safeClick(storeSelectButton, "store select button", page);
       if (!clicked) {
         throw new Error("Failed to click store select button.");
       }
     } else {
-      const clicked = await safeClick(page, storeCard, "store card");
+      const clicked = await safeClick(storeCard, "store card", page);
       if (!clicked) {
         throw new Error("Failed to click store card.");
       }
@@ -774,7 +779,7 @@ const setMyStoreByCityAndId = async (page, { city, storeId, name }) => {
       .locator("#storeSelectorModal button:has-text('Confirm as My Store')")
       .first();
     if (await confirmButton.isVisible().catch(() => false)) {
-      const clicked = await safeClick(page, confirmButton, "confirm store button");
+      const clicked = await safeClick(confirmButton, "confirm store button", page);
       if (!clicked) {
         throw new Error("Failed to click confirm store button.");
       }
