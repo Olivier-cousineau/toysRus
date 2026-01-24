@@ -70,6 +70,19 @@ const storeSources = [
   path.join("public", "toysrus", "stores.json")
 ];
 
+const readStoreCache = async () => {
+  try {
+    const raw = await fs.promises.readFile(STORE_CACHE_PATH, "utf8");
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : null;
+  } catch (error) {
+    if (error?.code !== "ENOENT") {
+      throw error;
+    }
+    return null;
+  }
+};
+
 const readStores = async () => {
   for (const source of storeSources) {
     try {
@@ -1871,7 +1884,7 @@ const runStoreBatch = async ({ stores, concurrency, radius }) => {
 };
 
 const scrapeStore = async () => {
-  const {
+  let {
     storeId,
     city,
     name,
@@ -1889,6 +1902,20 @@ const scrapeStore = async () => {
   }
   if (radius !== null && !Number.isFinite(radius)) {
     throw new Error("--radius must be a number");
+  }
+
+  if (storeId && !postalCode && !(latitude !== null && longitude !== null)) {
+    const storeCache = await readStoreCache();
+    const store = storeCache ? findStore(storeCache, storeId) : null;
+    const storePostal = normalizePostalCode(
+      store?.postalCode ?? store?.postal ?? store?.zip
+    );
+    if (storePostal) {
+      postalCode = storePostal;
+      console.log(
+        `[toysrus] using postalCode from store list: ${storePostal} for storeId=${storeId}.`
+      );
+    }
   }
 
   if (storeId && !postalCode && !(latitude !== null && longitude !== null)) {
