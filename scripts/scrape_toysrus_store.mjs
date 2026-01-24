@@ -154,30 +154,30 @@ const resolveStoreInput = async ({
   latitude,
   longitude
 }) => {
-  if (city) {
-    return {
-      storeId,
-      city,
-      name,
-      postalCode: postalCode ?? null,
-      latitude: latitude ?? null,
-      longitude: longitude ?? null,
-      label: buildStoreLabel({ city, name }) ?? null,
-      usedFallback: false
-    };
+  const normalizedPostal = normalizeStoreText(postalCode) || null;
+  const resolved = {
+    storeId,
+    city: city ? normalizeStoreText(city) : null,
+    name: name ?? null,
+    postalCode: normalizedPostal,
+    latitude: latitude ?? null,
+    longitude: longitude ?? null,
+    label: buildStoreLabel({ city, name }) ?? null,
+    usedFallback: false
+  };
+
+  const needsStoreLookup = Boolean(storeId);
+  if (!needsStoreLookup) {
+    return resolved;
   }
 
   const stores = await readStores();
   if (!stores) {
     console.warn("[toysrus] store list not found, using fallback city=unknown");
     return {
-      storeId,
-      city: "unknown",
-      name: name ?? null,
-      postalCode: postalCode ?? null,
-      latitude: latitude ?? null,
-      longitude: longitude ?? null,
-      label: buildStoreLabel({ city: "unknown", name }) ?? null,
+      ...resolved,
+      city: resolved.city ?? "unknown",
+      label: resolved.label ?? buildStoreLabel({ city: "unknown", name }) ?? null,
       usedFallback: true
     };
   }
@@ -186,18 +186,15 @@ const resolveStoreInput = async ({
   if (!store) {
     console.warn("[toysrus] store-id not found, using fallback");
     return {
-      storeId,
-      city: "unknown",
-      name: name ?? null,
-      postalCode: postalCode ?? null,
-      latitude: latitude ?? null,
-      longitude: longitude ?? null,
-      label: buildStoreLabel({ city: "unknown", name }) ?? null,
+      ...resolved,
+      city: resolved.city ?? "unknown",
+      label: resolved.label ?? buildStoreLabel({ city: "unknown", name }) ?? null,
       usedFallback: true
     };
   }
 
   const resolvedCity =
+    resolved.city ||
     normalizeStoreText(store.city) ||
     normalizeStoreText(store.province ?? store.state ?? store.region) ||
     normalizeStoreText(
@@ -205,21 +202,41 @@ const resolveStoreInput = async ({
     ) ||
     "unknown";
   const resolvedName =
-    name ??
+    resolved.name ??
     normalizeStoreText(store.name ?? store.storeName ?? store.searchText) ??
     null;
-  const label = buildStoreLabel(store) ?? resolvedName ?? resolvedCity;
+  const label = resolved.label ?? buildStoreLabel(store) ?? resolvedName ?? resolvedCity;
+
+  const storePostal =
+    normalizeStoreText(store.postalCode ?? store.postal ?? store.zip) || null;
+  const storeLatitude =
+    store.latitude ?? store.lat ?? store.Latitude ?? store.Lat ?? null;
+  const storeLongitude =
+    store.longitude ?? store.lng ?? store.Longitude ?? store.Lng ?? null;
+
+  const hasArgsPostal = Boolean(resolved.postalCode);
+  const hasArgsLatLng = Boolean(resolved.latitude && resolved.longitude);
+
+  let finalPostal = resolved.postalCode;
+  let finalLatitude = resolved.latitude;
+  let finalLongitude = resolved.longitude;
+
+  if (!hasArgsPostal && !hasArgsLatLng) {
+    if (storePostal) {
+      finalPostal = storePostal;
+    } else if (storeLatitude && storeLongitude) {
+      finalLatitude = storeLatitude;
+      finalLongitude = storeLongitude;
+    }
+  }
 
   return {
-    storeId,
+    ...resolved,
     city: resolvedCity,
     name: resolvedName,
-    postalCode:
-      normalizeStoreText(store.postalCode ?? store.postal ?? store.zip) || null,
-    latitude:
-      store.latitude ?? store.lat ?? store.Latitude ?? store.Lat ?? null,
-    longitude:
-      store.longitude ?? store.lng ?? store.Longitude ?? store.Lng ?? null,
+    postalCode: finalPostal,
+    latitude: finalLatitude,
+    longitude: finalLongitude,
     label,
     usedFallback: !store.city
   };
@@ -842,6 +859,97 @@ const fetchStoreLocatorHtml = async (page, url) => {
   return html;
 };
 
+const buildStoreLocatorRequestUrl = async ({
+  actionUrl,
+  baseUrl,
+  postalCode,
+  latitude,
+  longitude,
+  locationInput,
+  formLocator,
+  inputLocator
+}) => {
+  const url = new URL(actionUrl, baseUrl);
+  const formParams = await formLocator
+    .evaluate((form) => {
+      const params = {};
+      const elements = Array.from(
+        form.querySelectorAll("input, select, textarea")
+      );
+      elements.forEach((element) => {
+        if (!element.name) return;
+        if (
+          (element.type === "checkbox" || element.type === "radio") &&
+          !element.checked
+        ) {
+          return;
+        }
+        if (element instanceof HTMLSelectElement && element.multiple) {
+          const values = Array.from(element.selectedOptions).map(
+            (option) => option.value
+          );
+          if (values.length) {
+            params[element.name] = values.join(",");
+          }
+          return;
+        }
+        params[element.name] = element.value ?? "";
+      });
+      return params;
+    })
+    .catch(() => ({}));
+
+  Object.entries(formParams).forEach(([key, value]) => {
+    url.searchParams.set(key, value);
+  });
+
+  const inputName = await inputLocator.getAttribute("name").catch(() => null);
+  if (inputName && locationInput) {
+    url.searchParams.set(inputName, locationInput);
+  }
+
+  if (postalCode) {
+    const normalizedPostal = normalizeStoreText(postalCode);
+    if (normalizedPostal) {
+      let matched = false;
+      for (const key of url.searchParams.keys()) {
+        if (/postal|zip/i.test(key)) {
+          url.searchParams.set(key, normalizedPostal);
+          matched = true;
+        }
+      }
+      if (!matched) {
+        url.searchParams.set("postalCode", normalizedPostal);
+      }
+    }
+  } else if (latitude && longitude) {
+    const latValue = String(latitude);
+    const lngValue = String(longitude);
+    let matchedLat = false;
+    let matchedLng = false;
+
+    for (const key of url.searchParams.keys()) {
+      if (/lat(itude)?/i.test(key)) {
+        url.searchParams.set(key, latValue);
+        matchedLat = true;
+      }
+      if (/lng|lon(gitude)?/i.test(key)) {
+        url.searchParams.set(key, lngValue);
+        matchedLng = true;
+      }
+    }
+
+    if (!matchedLat) {
+      url.searchParams.set("lat", latValue);
+    }
+    if (!matchedLng) {
+      url.searchParams.set("lng", lngValue);
+    }
+  }
+
+  return url.toString();
+};
+
 const requestStoreCardsUntilFound = async (
   page,
   { baseUrl, actionUrl, storeId, maxPages = 8 }
@@ -1053,14 +1161,6 @@ const setMyStoreByCityAndId = async (
 
       if (locationInput && normalizeStoreText(locationInput)) {
         await fillStoreLocatorInput(page, storeLocatorInput, locationInput);
-        await storeLocatorInput.press("Enter").catch(() => {});
-
-        const autoCompleteSuggestion = page
-          .locator(".pac-container .pac-item")
-          .first();
-        if (await autoCompleteSuggestion.isVisible().catch(() => false)) {
-          await safeClick(autoCompleteSuggestion, "autocomplete suggestion", page);
-        }
       } else {
         console.warn(
           `[toysrus] no ${locationLabel} provided; attempting store search without location input`
@@ -1111,7 +1211,16 @@ const setMyStoreByCityAndId = async (
     }
 
     const baseUrl = page.url();
-    const actionUrl = new URL(action, baseUrl).toString();
+    const actionUrl = await buildStoreLocatorRequestUrl({
+      actionUrl: action,
+      baseUrl,
+      postalCode,
+      latitude,
+      longitude,
+      locationInput,
+      formLocator: storeLocator,
+      inputLocator: storeLocatorInput
+    });
     const {
       found: storeMatch,
       pagesFetched,
