@@ -1,6 +1,6 @@
 {
   "store": "Online",
-  "scraped_at": "2026-01-26",
+  "scraped_at": "2026-01-27",
   "count": 24,
   "products": [
     {
@@ -96,6 +96,13 @@
     },
     {
       "title": null,
+      "image": "https://www.toysrus.ca/dw/image/v2/BDFX_PRD/on/demandware.static/-/Sites-toys-master-catalog/default/dw485a635f/images/34C4BB93_1.jpg?sw=280&sh=280&sm=fit",
+      "price_regular": null,
+      "price_liquidation": null,
+      "link": null
+    },
+    {
+      "title": null,
       "image": "https://www.toysrus.ca/dw/image/v2/BDFX_PRD/on/demandware.static/-/Sites-toys-master-catalog/default/dw806e79ee/images/845749DE_1.jpg?sw=280&sh=280&sm=fit",
       "price_regular": null,
       "price_liquidation": null,
@@ -104,13 +111,6 @@
     {
       "title": null,
       "image": "https://www.toysrus.ca/dw/image/v2/BDFX_PRD/on/demandware.static/-/Sites-toys-master-catalog/default/dw434b4b76/images/946B6A2A_1.jpg?sw=280&sh=280&sm=fit",
-      "price_regular": null,
-      "price_liquidation": null,
-      "link": null
-    },
-    {
-      "title": null,
-      "image": "https://www.toysrus.ca/dw/image/v2/BDFX_PRD/on/demandware.static/-/Sites-toys-master-catalog/default/dw485a635f/images/34C4BB93_1.jpg?sw=280&sh=280&sm=fit",
       "price_regular": null,
       "price_liquidation": null,
       "link": null
