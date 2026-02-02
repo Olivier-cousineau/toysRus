@@ -1,6 +1,6 @@
 {
   "store": "Online",
-  "scraped_at": "2026-02-01",
+  "scraped_at": "2026-02-02",
   "count": 24,
   "products": [
     {
@@ -33,13 +33,6 @@
     },
     {
       "title": null,
-      "image": "https://www.toysrus.ca/dw/image/v2/BDFX_PRD/on/demandware.static/-/Sites-toys-master-catalog/default/dw67cdcce8/images/F4B45987_1.jpg?sw=280&sh=280&sm=fit",
-      "price_regular": null,
-      "price_liquidation": null,
-      "link": null
-    },
-    {
-      "title": null,
       "image": "https://www.toysrus.ca/dw/image/v2/BDFX_PRD/on/demandware.static/-/Sites-toys-master-catalog/default/dw2a13fa78/images/A4D09A9D_1.jpg?sw=280&sh=280&sm=fit",
       "price_regular": null,
       "price_liquidation": null,
@@ -47,14 +40,14 @@
     },
     {
       "title": null,
-      "image": "https://www.toysrus.ca/dw/image/v2/BDFX_PRD/on/demandware.static/-/Sites-toys-master-catalog/default/dw7291e099/images/D4A85AF5_1.jpg?sw=280&sh=280&sm=fit",
+      "image": "https://www.toysrus.ca/dw/image/v2/BDFX_PRD/on/demandware.static/-/Sites-toys-master-catalog/default/dw67cdcce8/images/F4B45987_1.jpg?sw=280&sh=280&sm=fit",
       "price_regular": null,
       "price_liquidation": null,
       "link": null
     },
     {
       "title": null,
-      "image": "https://www.toysrus.ca/dw/image/v2/BDFX_PRD/on/demandware.static/-/Sites-toys-master-catalog/default/dw8ce76929/images/BAB6BA72_1.jpg?sw=280&sh=280&sm=fit",
+      "image": "https://www.toysrus.ca/dw/image/v2/BDFX_PRD/on/demandware.static/-/Sites-toys-master-catalog/default/dw7291e099/images/D4A85AF5_1.jpg?sw=280&sh=280&sm=fit",
       "price_regular": null,
       "price_liquidation": null,
       "link": null
@@ -69,6 +62,27 @@
     {
       "title": null,
       "image": "https://www.toysrus.ca/dw/image/v2/BDFX_PRD/on/demandware.static/-/Sites-toys-master-catalog/default/dwc4699d1c/images/44D31900_1.jpg?sw=280&sh=280&sm=fit",
+      "price_regular": null,
+      "price_liquidation": null,
+      "link": null
+    },
+    {
+      "title": null,
+      "image": "https://www.toysrus.ca/dw/image/v2/BDFX_PRD/on/demandware.static/-/Sites-toys-master-catalog/default/dw806e79ee/images/845749DE_1.jpg?sw=280&sh=280&sm=fit",
+      "price_regular": null,
+      "price_liquidation": null,
+      "link": null
+    },
+    {
+      "title": null,
+      "image": "https://www.toysrus.ca/dw/image/v2/BDFX_PRD/on/demandware.static/-/Sites-toys-master-catalog/default/dw434b4b76/images/946B6A2A_1.jpg?sw=280&sh=280&sm=fit",
+      "price_regular": null,
+      "price_liquidation": null,
+      "link": null
+    },
+    {
+      "title": null,
+      "image": "https://www.toysrus.ca/dw/image/v2/BDFX_PRD/on/demandware.static/-/Sites-toys-master-catalog/default/dw8ce76929/images/BAB6BA72_1.jpg?sw=280&sh=280&sm=fit",
       "price_regular": null,
       "price_liquidation": null,
       "link": null
@@ -103,28 +117,7 @@
     },
     {
       "title": null,
-      "image": "https://www.toysrus.ca/dw/image/v2/BDFX_PRD/on/demandware.static/-/Sites-toys-master-catalog/default/dw806e79ee/images/845749DE_1.jpg?sw=280&sh=280&sm=fit",
-      "price_regular": null,
-      "price_liquidation": null,
-      "link": null
-    },
-    {
-      "title": null,
-      "image": "https://www.toysrus.ca/dw/image/v2/BDFX_PRD/on/demandware.static/-/Sites-toys-master-catalog/default/dw434b4b76/images/946B6A2A_1.jpg?sw=280&sh=280&sm=fit",
-      "price_regular": null,
-      "price_liquidation": null,
-      "link": null
-    },
-    {
-      "title": null,
       "image": "https://www.toysrus.ca/dw/image/v2/BDFX_PRD/on/demandware.static/-/Sites-toys-master-catalog/default/dwad42ee5d/images/24E6380A_1.jpg?sw=280&sh=280&sm=fit",
-      "price_regular": null,
-      "price_liquidation": null,
-      "link": null
-    },
-    {
-      "title": null,
-      "image": "https://www.toysrus.ca/dw/image/v2/BDFX_PRD/on/demandware.static/-/Sites-toys-master-catalog/default/dw580bc785/images/4A884099_1.jpg?sw=280&sh=280&sm=fit",
       "price_regular": null,
       "price_liquidation": null,
       "link": null
@@ -145,14 +138,7 @@
     },
     {
       "title": null,
-      "image": "https://www.toysrus.ca/dw/image/v2/BDFX_PRD/on/demandware.static/-/Sites-toys-master-catalog/default/dw4cff2584/images/64089910_1.jpg?sw=280&sh=280&sm=fit",
-      "price_regular": null,
-      "price_liquidation": null,
-      "link": null
-    },
-    {
-      "title": null,
-      "image": "https://www.toysrus.ca/dw/image/v2/BDFX_PRD/on/demandware.static/-/Sites-toys-master-catalog/default/dwf3a85d45/images/409253AB_1.jpg?sw=280&sh=280&sm=fit",
+      "image": "https://www.toysrus.ca/dw/image/v2/BDFX_PRD/on/demandware.static/-/Sites-toys-master-catalog/default/dw580bc785/images/4A884099_1.jpg?sw=280&sh=280&sm=fit",
       "price_regular": null,
       "price_liquidation": null,
       "link": null
@@ -167,6 +153,20 @@
     {
       "title": null,
       "image": "https://www.toysrus.ca/dw/image/v2/BDFX_PRD/on/demandware.static/-/Sites-toys-master-catalog/default/dwc147d530/images/C4AFC824_1.jpg?sw=280&sh=280&sm=fit",
+      "price_regular": null,
+      "price_liquidation": null,
+      "link": null
+    },
+    {
+      "title": null,
+      "image": "https://www.toysrus.ca/dw/image/v2/BDFX_PRD/on/demandware.static/-/Sites-toys-master-catalog/default/dw4cff2584/images/64089910_1.jpg?sw=280&sh=280&sm=fit",
+      "price_regular": null,
+      "price_liquidation": null,
+      "link": null
+    },
+    {
+      "title": null,
+      "image": "https://www.toysrus.ca/dw/image/v2/BDFX_PRD/on/demandware.static/-/Sites-toys-master-catalog/default/dwf3a85d45/images/409253AB_1.jpg?sw=280&sh=280&sm=fit",
       "price_regular": null,
       "price_liquidation": null,
       "link": null
