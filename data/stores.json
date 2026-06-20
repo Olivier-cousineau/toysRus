@@ -1,0 +1,446 @@
+[
+  {
+    "storeId": 2407,
+    "name": "Niagara Pen Centre",
+    "address": {
+      "street": "221 Glendale Ave",
+      "city": "St. Catharine",
+      "province": "ON",
+      "postalCode": "L2T 2K9"
+    },
+    "distanceKm": 508.6,
+    "availability": "Available"
+  },
+  {
+    "storeId": 2408,
+    "name": "Guelph",
+    "address": {
+      "street": "435 Stone Road West",
+      "city": "Guelph",
+      "province": "ON",
+      "postalCode": "N1G 2X6"
+    },
+    "distanceKm": 553.7,
+    "availability": "Available"
+  },
+  {
+    "storeId": 2419,
+    "name": "Lawrence & Allen",
+    "address": {
+      "street": "700 Lawrence Ave West",
+      "city": "Toronto",
+      "province": "ON",
+      "postalCode": "M6A 3B4"
+    },
+    "distanceKm": 487.6,
+    "availability": "OutOfStock"
+  },
+  {
+    "storeId": 2435,
+    "name": "South Barrie",
+    "address": {
+      "street": "Unit Cru 3",
+      "city": "Barrie",
+      "province": "ON",
+      "postalCode": "L4N 6P3"
+    },
+    "distanceKm": 473.7,
+    "availability": "OutOfStock"
+  },
+  {
+    "storeId": 2445,
+    "name": "Scarborough",
+    "address": {
+      "street": "300 BOROUGH DRIVE",
+      "city": "Scarborough",
+      "province": "ON",
+      "postalCode": "M1P 4P5"
+    },
+    "distanceKm": 471.1,
+    "availability": "OutOfStock"
+  },
+  {
+    "storeId": 3502,
+    "name": "Brampton",
+    "address": {
+      "street": "150 West Drive",
+      "city": "Brampton",
+      "province": "ON",
+      "postalCode": "L6T 4P9"
+    },
+    "distanceKm": 508.3,
+    "availability": "Available"
+  },
+  {
+    "storeId": 3503,
+    "name": "Hamilton",
+    "address": {
+      "street": "970 Upper Wentworth St.",
+      "city": "Hamilton",
+      "province": "ON",
+      "postalCode": "L9A 4V8"
+    },
+    "distanceKm": 545.7,
+    "availability": "Available"
+  },
+  {
+    "storeId": 3506,
+    "name": "Sherway",
+    "address": {
+      "street": "690 Evans Avenue",
+      "city": "Etobicoke",
+      "province": "ON",
+      "postalCode": "M9C 1A1"
+    },
+    "distanceKm": 501.2,
+    "availability": "Available"
+  },
+  {
+    "storeId": 3507,
+    "name": "Kitchener",
+    "address": {
+      "street": "419 Fairway Road South",
+      "city": "Kitchener",
+      "province": "ON",
+      "postalCode": "N2C 1X4"
+    },
+    "distanceKm": 573.7,
+    "availability": "Available"
+  },
+  {
+    "storeId": 3508,
+    "name": "Whitby",
+    "address": {
+      "street": "50 Thickson Rd. South",
+      "city": "Whitby",
+      "province": "ON",
+      "postalCode": "L1N 7T2"
+    },
+    "distanceKm": 441.2,
+    "availability": "Available"
+  },
+  {
+    "storeId": 3509,
+    "name": "Windsor",
+    "address": {
+      "street": "3039 Howard Avenue",
+      "city": "Windsor",
+      "province": "ON",
+      "postalCode": "N8X 3T9"
+    },
+    "distanceKm": 818.4,
+    "availability": "OutOfStock"
+  },
+  {
+    "storeId": 3511,
+    "name": "Brossard",
+    "address": {
+      "street": "6855, Boulevard Taschereau",
+      "city": "Brossard",
+      "province": "QC",
+      "postalCode": "J4Z 1A7"
+    },
+    "distanceKm": 56.5,
+    "availability": "OutOfStock"
+  },
+  {
+    "storeId": 3514,
+    "name": "Laval",
+    "address": {
+      "street": "2600 Boulevard Daniel-Johnson",
+      "city": "Laval",
+      "province": "QC",
+      "postalCode": "H7T 2K1"
+    },
+    "distanceKm": 32.7,
+    "availability": "OutOfStock"
+  },
+  {
+    "storeId": 3519,
+    "name": "Don Mills",
+    "address": {
+      "street": "1440 Lawrence Ave. E",
+      "city": "North York",
+      "province": "ON",
+      "postalCode": "M4A 2V6"
+    },
+    "distanceKm": 476.8,
+    "availability": "OutOfStock"
+  },
+  {
+    "storeId": 3520,
+    "name": "St. Catharines",
+    "address": {
+      "street": "87 Meadowvale Drive",
+      "city": "Saint Catharines",
+      "province": "ON",
+      "postalCode": "L2N 3Z8"
+    },
+    "distanceKm": 507.7,
+    "availability": "OutOfStock"
+  },
+  {
+    "storeId": 3521,
+    "name": "South Edmonton",
+    "address": {
+      "street": "3940 Gateway Blvd. Nw",
+      "city": "Edmonton",
+      "province": "AB",
+      "postalCode": "T6J 5H2"
+    },
+    "distanceKm": 2925.9,
+    "availability": "Available"
+  },
+  {
+    "storeId": 3522,
+    "name": "West Edmonton",
+    "address": {
+      "street": "9908 170Th Street",
+      "city": "Edmonton",
+      "province": "AB",
+      "postalCode": "T5T 5L5"
+    },
+    "distanceKm": 2934.2,
+    "availability": "OutOfStock"
+  },
+  {
+    "storeId": 3524,
+    "name": "Macleod Trail",
+    "address": {
+      "street": "10450 Macleod Trail S E",
+      "city": "Calgary",
+      "province": "AB",
+      "postalCode": "T2J 0P8"
+    },
+    "distanceKm": 2975.0,
+    "availability": "OutOfStock"
+  },
+  {
+    "storeId": 3525,
+    "name": "Polo Park",
+    "address": {
+      "street": "1445 Saint Matthews Ave.",
+      "city": "Winnipeg",
+      "province": "MB",
+      "postalCode": "R3G 0K7"
+    },
+    "distanceKm": 1780.8,
+    "availability": "Available"
+  },
+  {
+    "storeId": 3526,
+    "name": "Kildonan",
+    "address": {
+      "street": "1560 Regent Ave W",
+      "city": "Winnipeg",
+      "province": "MB",
+      "postalCode": "R2C 3B4"
+    },
+    "distanceKm": 1771.2,
+    "availability": "Available"
+  },
+  {
+    "storeId": 3527,
+    "name": "Nepean",
+    "address": {
+      "street": "1683 Merivale Road",
+      "city": "Ottawa",
+      "province": "ON",
+      "postalCode": "K2G 3K2"
+    },
+    "distanceKm": 142.8,
+    "availability": "Available"
+  },
+  {
+    "storeId": 3529,
+    "name": "Barrie",
+    "address": {
+      "street": "555 Bayfield St.",
+      "city": "Barrie",
+      "province": "ON",
+      "postalCode": "L4M 4Z9"
+    },
+    "distanceKm": 472.9,
+    "availability": "Available"
+  },
+  {
+    "storeId": 3531,
+    "name": "St. Laurent",
+    "address": {
+      "street": "1200 Saint Laurent",
+      "city": "Ottawa",
+      "province": "ON",
+      "postalCode": "K1K 3B8"
+    },
+    "distanceKm": 133.4,
+    "availability": "Available"
+  },
+  {
+    "storeId": 3534,
+    "name": "Langley",
+    "address": {
+      "street": "19705 Fraser Highway",
+      "city": "Langley",
+      "province": "BC",
+      "postalCode": "V3A 7E9"
+    },
+    "distanceKm": 3613.6,
+    "availability": "Available"
+  },
+  {
+    "storeId": 3535,
+    "name": "North Edmonton",
+    "address": {
+      "street": "13029 97Th Street Nw",
+      "city": "Edmonton",
+      "province": "AB",
+      "postalCode": "T5E 4C4"
+    },
+    "distanceKm": 2925.9,
+    "availability": "Available"
+  },
+  {
+    "storeId": 3536,
+    "name": "Kingston",
+    "address": {
+      "street": "1020 Midland Avenue",
+      "city": "Kingston",
+      "province": "ON",
+      "postalCode": "K7P 2X9"
+    },
+    "distanceKm": 264.4,
+    "availability": "Available"
+  },
+  {
+    "storeId": 3538,
+    "name": "Saint-Bruno",
+    "address": {
+      "street": "655, Boulevard Des Promenades",
+      "city": "Saint-Bruno",
+      "province": "QC",
+      "postalCode": "J3V 6A8"
+    },
+    "distanceKm": 59.2,
+    "availability": "Available"
+  },
+  {
+    "storeId": 3540,
+    "name": "Newmarket",
+    "address": {
+      "street": "17600 Yonge Street",
+      "city": "Newmarket",
+      "province": "ON",
+      "postalCode": "L3Y 4Z1"
+    },
+    "distanceKm": 472.3,
+    "availability": "Available"
+  },
+  {
+    "storeId": 3543,
+    "name": "Lethbridge",
+    "address": {
+      "street": "225 1St Avenue South",
+      "city": "Lethbridge",
+      "province": "AB",
+      "postalCode": "T1J 4P2"
+    },
+    "distanceKm": 2902.1,
+    "availability": "Available"
+  },
+  {
+    "storeId": 3544,
+    "name": "Saskatoon",
+    "address": {
+      "street": "300 Idylwild South",
+      "city": "Saskatoon",
+      "province": "SK",
+      "postalCode": "S7M 5T4"
+    },
+    "distanceKm": 2461.9,
+    "availability": "Available"
+  },
+  {
+    "storeId": 3545,
+    "name": "Regina",
+    "address": {
+      "street": "730 Albert Street",
+      "city": "Regina",
+      "province": "SK",
+      "postalCode": "S4R 2P5"
+    },
+    "distanceKm": 2312.0,
+    "availability": "Available"
+  },
+  {
+    "storeId": 3555,
+    "name": "St. John's",
+    "address": {
+      "street": "58 Kenmount Road",
+      "city": "St. John's",
+      "province": "NL",
+      "postalCode": "A1B 1W2"
+    },
+    "distanceKm": 1628.2,
+    "availability": "Available"
+  },
+  {
+    "storeId": 3557,
+    "name": "Red Deer",
+    "address": {
+      "street": "4900 Molly Banister Dr.",
+      "city": "Red Deer",
+      "province": "AB",
+      "postalCode": "T4R 1N9"
+    },
+    "distanceKm": 2948.5,
+    "availability": "OutOfStock"
+  },
+  {
+    "storeId": 3559,
+    "name": "Fredericton",
+    "address": {
+      "street": "1381 Regent Street",
+      "city": "Fredericton",
+      "province": "NB",
+      "postalCode": "E3C 1A2"
+    },
+    "distanceKm": 568.8,
+    "availability": "OutOfStock"
+  },
+  {
+    "storeId": 3560,
+    "name": "Dufferin Mall",
+    "address": {
+      "street": "900 Dufferin Street",
+      "city": "Toronto",
+      "province": "ON",
+      "postalCode": "M6H 4A9"
+    },
+    "distanceKm": 490.2,
+    "availability": "OutOfStock"
+  },
+  {
+    "storeId": 3561,
+    "name": "Sarnia",
+    "address": {
+      "street": "1380 London Road",
+      "city": "Sarnia",
+      "province": "ON",
+      "postalCode": "N7S 1P8"
+    },
+    "distanceKm": 732.5,
+    "availability": "Available"
+  },
+  {
+    "storeId": 3574,
+    "name": "Vaughan Mills",
+    "address": {
+      "street": "Unit C2",
+      "city": "Vaughan",
+      "province": "ON",
+      "postalCode": "L4K 5W4"
+    },
+    "distanceKm": 487.8,
+    "availability": "Available"
+  }
+]
